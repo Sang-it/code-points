@@ -154,8 +154,10 @@ end
 --- @param parent table the original parent entry
 --- @param ordered_children table[] children in new order
 --- @param child_matched table map of new_child_index → original_child_index
+--- @param child_groups table[]|nil parsed child groups with new_comments
+--- @param lang_prefix string|nil the language's native comment prefix
 --- @return string[] new_lines
-local function reconstruct_parent(parent, ordered_children, child_matched)
+local function reconstruct_parent(parent, ordered_children, child_matched, child_groups, lang_prefix)
   if not ordered_children or #ordered_children == 0 then
     return parent.lines
   end
@@ -208,8 +210,38 @@ local function reconstruct_parent(parent, ordered_children, child_matched)
   end
 
   for i, child in ipairs(ordered_children) do
-    for _, line in ipairs(child.lines) do
-      table.insert(result, line)
+    -- Insert new comments above the child (between existing comments and declaration)
+    local child_group = child_groups and child_groups[i]
+    local has_child_comments = child_group and child_group.new_comments and #child_group.new_comments > 0
+    local child_comment_count = child.decl_start_row - child.start_row
+
+    if has_child_comments and child_comment_count > 0 then
+      -- Existing comments first, then new comments, then declaration
+      for j = 1, child_comment_count do
+        table.insert(result, child.lines[j])
+      end
+      -- Detect indentation from first declaration line
+      local indent = child.lines[child_comment_count + 1]:match("^(%s*)")
+      for _, comment_line in ipairs(child_group.new_comments) do
+        table.insert(result, indent .. translate_comment(comment_line, lang_prefix or "//"))
+      end
+      for j = child_comment_count + 1, #child.lines do
+        table.insert(result, child.lines[j])
+      end
+    elseif has_child_comments then
+      -- No existing comments — insert new comments with proper indentation, then child
+      local indent = child.lines[1]:match("^(%s*)")
+      for _, comment_line in ipairs(child_group.new_comments) do
+        table.insert(result, indent .. translate_comment(comment_line, lang_prefix or "//"))
+      end
+      for _, line in ipairs(child.lines) do
+        table.insert(result, line)
+      end
+    else
+      -- No new comments — just add child as-is
+      for _, line in ipairs(child.lines) do
+        table.insert(result, line)
+      end
     end
 
     -- Add the trailing gap from the original child
@@ -255,14 +287,21 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
   local parsed_groups = {} -- list of { prefix, name, children, new_comments }
 
   local current_parent = nil
-  local pending_comments = {} -- comment lines waiting to be attached to the next parent
+  local pending_comments = {}       -- comment lines waiting to be attached to the next parent
+  local pending_child_comments = {} -- comment lines waiting to be attached to the next child
 
   for _, line in ipairs(new_display_lines) do
     local trimmed = vim.trim(line)
 
     -- Check if this is a new comment line (starts with //)
     if trimmed:sub(1, 2) == "//" then
-      table.insert(pending_comments, trimmed)
+      if current_parent then
+        -- Inside a parent's children section — attach to next child
+        table.insert(pending_child_comments, trimmed)
+      else
+        -- Top-level — attach to next parent
+        table.insert(pending_comments, trimmed)
+      end
     else
       local is_child, content = parse_child_prefix(line)
       local prefix, name = parse_display_content(content, type_prefixes)
@@ -275,8 +314,15 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
         if not current_parent then
           return false, "child line without parent: " .. line, {}
         end
-        table.insert(current_parent.children, { prefix = prefix, name = name })
+        table.insert(current_parent.children, {
+          prefix = prefix,
+          name = name,
+          new_comments = pending_child_comments,
+        })
+        pending_child_comments = {}
       else
+        -- Reset child comments when moving to a new parent
+        pending_child_comments = {}
         current_parent = { prefix = prefix, name = name, children = {}, new_comments = pending_comments }
         pending_comments = {}
         table.insert(parsed_groups, current_parent)
@@ -353,9 +399,19 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
         end
       end
 
-      -- If children order changed, reconstruct the parent body
-      if children_order_changed(child_matched, #orig_children) then
-        entry_copy.lines = reconstruct_parent(orig_entry, ordered_children, child_matched)
+      -- Check if any child has new comments
+      local has_child_new_comments = false
+      for _, child_group in ipairs(group.children) do
+        if child_group.new_comments and #child_group.new_comments > 0 then
+          has_child_new_comments = true
+          break
+        end
+      end
+
+      -- Reconstruct if children were reordered or have new comments
+      if children_order_changed(child_matched, #orig_children) or has_child_new_comments then
+        local lp = lang.comment_prefix or "//"
+        entry_copy.lines = reconstruct_parent(orig_entry, ordered_children, child_matched, group.children, lp)
       end
     end
 
