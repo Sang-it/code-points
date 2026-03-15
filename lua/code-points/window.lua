@@ -167,6 +167,22 @@ function M.open(source_bufnr, entries)
     end
   end, { buffer = buf, noremap = true, silent = true, desc = "Close Code Points window" })
 
+  -- Map <CR> to jump to the code point under cursor
+  vim.keymap.set("n", "<CR>", function()
+    local cursor_line = vim.api.nvim_win_get_cursor(win)[1] -- 1-indexed
+    local entry = entries[cursor_line]
+    if not entry then return end
+
+    -- Close the float first
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+
+    -- Jump to the code point in the source buffer
+    vim.api.nvim_set_current_buf(source_bufnr)
+    vim.api.nvim_win_set_cursor(0, { entry.start_row + 1, 0 })
+  end, { buffer = buf, noremap = true, silent = true, desc = "Jump to code point" })
+
   -- Handle :w — intercept the save and apply reordering + renames
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     buffer = buf,
