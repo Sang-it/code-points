@@ -7,6 +7,8 @@ M.parsers = {
   cpp = "cpp",
 }
 
+M.comment_types = { comment = true }
+
 local SKIP_TYPES = {
   comment = true,
   preproc_include = true,

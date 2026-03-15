@@ -6,6 +6,8 @@ M.parsers = {
   rust = "rust",
 }
 
+M.comment_types = { line_comment = true, block_comment = true }
+
 local DECLARATION_TYPES = {
   function_item = "fn",
   struct_item = "struct",

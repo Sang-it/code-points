@@ -133,21 +133,22 @@ end
 
 --- Reconstruct a parent entry's lines with reordered children.
 --- Decomposes the parent into header/children/footer and reassembles.
+--- Preserves gaps between children (which may contain comments).
 --- @param parent table the original parent entry
 --- @param ordered_children table[] children in new order
+--- @param child_matched table map of new_child_index → original_child_index
 --- @return string[] new_lines
-local function reconstruct_parent(parent, ordered_children)
+local function reconstruct_parent(parent, ordered_children, child_matched)
   if not ordered_children or #ordered_children == 0 then
     return parent.lines
   end
 
-  local first_child = ordered_children[1]
-  local last_child = ordered_children[#ordered_children]
+  local orig_children = parent.children
 
   -- Find the earliest and latest child rows in the ORIGINAL ordering
   local min_child_row = parent.end_row
   local max_child_row = parent.start_row
-  for _, child in ipairs(parent.children) do
+  for _, child in ipairs(orig_children) do
     if child.start_row < min_child_row then
       min_child_row = child.start_row
     end
@@ -168,18 +169,44 @@ local function reconstruct_parent(parent, ordered_children)
     table.insert(footer, parent.lines[row - parent.start_row + 1])
   end
 
-  -- Reassemble: header + children (new order) with blank line separators + footer
+  -- Collect trailing gaps between consecutive children (in original order)
+  local child_trailing_gaps = {}
+  for i = 1, #orig_children do
+    child_trailing_gaps[i] = {}
+    if i < #orig_children then
+      local gap_start = orig_children[i].end_row + 1
+      local gap_end = orig_children[i + 1].start_row - 1
+      if gap_end >= gap_start then
+        for row = gap_start, gap_end do
+          table.insert(child_trailing_gaps[i], parent.lines[row - parent.start_row + 1])
+        end
+      end
+    end
+  end
+
+  -- Reassemble: header + children (new order) with preserved gaps + footer
   local result = {}
   for _, line in ipairs(header) do
     table.insert(result, line)
   end
 
   for i, child in ipairs(ordered_children) do
-    if i > 1 then
-      table.insert(result, "")
-    end
     for _, line in ipairs(child.lines) do
       table.insert(result, line)
+    end
+
+    -- Add the trailing gap from the original child
+    local orig_idx = child_matched[i]
+    local gap = child_trailing_gaps[orig_idx]
+    if gap and #gap > 0 then
+      for _, line in ipairs(gap) do
+        table.insert(result, line)
+      end
+    else
+      -- No original gap — add a blank line (unless it's the last child)
+      if i < #ordered_children then
+        table.insert(result, "")
+      end
     end
   end
 
@@ -299,14 +326,14 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
 
       -- If children order changed, reconstruct the parent body
       if children_order_changed(child_matched, #orig_children) then
-        entry_copy.lines = reconstruct_parent(orig_entry, ordered_children)
+        entry_copy.lines = reconstruct_parent(orig_entry, ordered_children, child_matched)
       end
     end
 
     table.insert(ordered_entries, entry_copy)
   end
 
-  -- Collect preamble
+  -- Collect preamble (everything before the first entry)
   local total_lines = vim.api.nvim_buf_line_count(source_bufnr)
   local first_entry_row = original_entries[1].start_row
   local preamble = {}
@@ -314,11 +341,32 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
     preamble = vim.api.nvim_buf_get_lines(source_bufnr, 0, first_entry_row, false)
   end
 
-  -- Collect postamble
+  -- Collect gaps between consecutive entries (in original order).
+  -- Each gap is the content between entry[i].end_row and entry[i+1].start_row.
+  -- We attach the gap as trailing content to the entry that precedes it.
+  local trailing_gaps = {} -- trailing_gaps[orig_entry_index] = string[]
+  for i = 1, #original_entries do
+    trailing_gaps[i] = {}
+    if i < #original_entries then
+      local gap_start = original_entries[i].end_row + 1
+      local gap_end = original_entries[i + 1].start_row - 1
+      if gap_end >= gap_start then
+        trailing_gaps[i] = vim.api.nvim_buf_get_lines(source_bufnr, gap_start, gap_end + 1, false)
+      end
+    end
+  end
+
+  -- Collect postamble (everything after the last entry)
   local last_entry_row = original_entries[#original_entries].end_row
   local postamble = {}
   if last_entry_row + 1 < total_lines then
     postamble = vim.api.nvim_buf_get_lines(source_bufnr, last_entry_row + 1, total_lines, false)
+  end
+
+  -- Build a map from ordered entry to its original index (for gap lookup)
+  local orig_index_map = {} -- orig_index_map[i] = original index of ordered_entries[i]
+  for i, group in ipairs(parsed_groups) do
+    orig_index_map[i] = parent_matched[i]
   end
 
   -- Build new buffer content
@@ -329,16 +377,30 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
   end
 
   for i, entry in ipairs(ordered_entries) do
+    -- Add a blank line separator before the first entry (if preamble exists)
     if i == 1 and #preamble > 0 then
       if #result > 0 and result[#result] ~= "" then
         table.insert(result, "")
       end
-    elseif i > 1 then
-      table.insert(result, "")
     end
 
+    -- Add the entry's lines
     for _, line in ipairs(entry.lines) do
       table.insert(result, line)
+    end
+
+    -- Add the trailing gap from the original entry
+    local orig_idx = orig_index_map[i]
+    local gap = trailing_gaps[orig_idx]
+    if gap and #gap > 0 then
+      for _, line in ipairs(gap) do
+        table.insert(result, line)
+      end
+    else
+      -- No original gap — add a blank line separator (unless it's the last entry)
+      if i < #ordered_entries then
+        table.insert(result, "")
+      end
     end
   end
 

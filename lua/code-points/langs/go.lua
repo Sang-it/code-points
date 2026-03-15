@@ -6,6 +6,8 @@ M.parsers = {
   go = "go",
 }
 
+M.comment_types = { comment = true }
+
 local DECLARATION_TYPES = {
   function_declaration = "func",
   method_declaration = "func",

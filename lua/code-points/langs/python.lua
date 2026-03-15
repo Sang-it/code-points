@@ -6,6 +6,8 @@ M.parsers = {
   python = "python",
 }
 
+M.comment_types = { comment = true }
+
 local DECLARATION_TYPES = {
   function_definition = "def",
   class_definition = "class",

@@ -8,6 +8,8 @@ M.parsers = {
   typescriptreact = "tsx",
 }
 
+M.comment_types = { comment = true }
+
 -- Node types we consider as reorderable code points
 local DECLARATION_TYPES = {
   function_declaration = "function",

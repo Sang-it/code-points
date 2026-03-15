@@ -6,6 +6,8 @@ M.parsers = {
   lua = "lua",
 }
 
+M.comment_types = { comment = true }
+
 local DECLARATION_TYPES = {
   function_declaration = "function",
   variable_declaration = "local",

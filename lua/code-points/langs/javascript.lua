@@ -7,6 +7,8 @@ M.parsers = {
   javascriptreact = "javascript",
 }
 
+M.comment_types = { comment = true }
+
 local DECLARATION_TYPES = {
   function_declaration = "function",
   lexical_declaration = "variable",

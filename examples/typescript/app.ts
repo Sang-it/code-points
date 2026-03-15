@@ -1,9 +1,5 @@
 import { EventEmitter } from "events";
 
-let activeCount = 0;
-
-const MAX_CONNECTIONS = 100;
-
 class ConnectionPools {
   remove(id: string): void {
     this.connections.delete(id);
@@ -24,13 +20,15 @@ class ConnectionPools {
   private connections: Map<string, ConnectionState> = new Map();
 }
 
+let activeCount = 0;
+
 interface ServerConfig {
   host: string;
   port: number;
   debug?: boolean;
 }
 
-type ConnectionState = "idle" | "active" | "closed";
+const MAX_CONNECTIONS = 100;
 
 enum LogLevel {
   Debug = "DEBUG",
@@ -38,6 +36,8 @@ enum LogLevel {
   Warn = "WARN",
   Error = "ERROR",
 }
+
+type ConnectionState = "idle" | "active" | "closed";
 
 export const DEFAULT_CONFIG: ServerConfig = {
   host: "0.0.0.0",

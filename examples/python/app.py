@@ -11,22 +11,22 @@ MAX_RETRIES = 3
 @dataclass
 class User:
     name: str
-    email: str
     age: Optional[int] = None
+    email: str
 
 
 class UserRepository:
     def __init__(self):
         self._users: list[User] = []
 
-    def add(self, user: User) -> None:
-        self._users.append(user)
+    def all(self) -> list[User]:
+        return list(self._users)
 
     def find_by_email(self, email: str) -> Optional[User]:
         return next((u for u in self._users if u.email == email), None)
 
-    def all(self) -> list[User]:
-        return list(self._users)
+    def add(self, user: User) -> None:
+        self._users.append(user)
 
 
 async def fetch_user(user_id: int) -> dict:
