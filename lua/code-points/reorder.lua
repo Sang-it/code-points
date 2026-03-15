@@ -1,26 +1,19 @@
 local M = {}
 
---- Known type prefixes used in display lines (longest first for greedy matching).
-local TYPE_PREFIXES = {
-  "export function",
-  "export const",
-  "export let",
-  "export var",
-  "export class",
-  "export interface",
-  "export type",
-  "export enum",
-  "export",
-  "function",
-  "const",
-  "let",
-  "var",
-  "class",
-  "interface",
-  "type",
-  "enum",
-  "expression",
-}
+--- Build a sorted list of type prefixes from a lang's highlights table.
+--- Sorted by length descending so longer prefixes match first.
+--- @param lang CodePointsLang the language module
+--- @return string[] type_prefixes
+local function build_type_prefixes(lang)
+  local prefixes = {}
+  if lang and lang.highlights then
+    for prefix in pairs(lang.highlights) do
+      table.insert(prefixes, prefix)
+    end
+  end
+  table.sort(prefixes, function(a, b) return #a > #b end)
+  return prefixes
+end
 
 --- Strip the arity suffix (e.g., "/2") from a name.
 --- @param name string
@@ -32,16 +25,17 @@ end
 --- Parse a display line to extract the type prefix and name.
 --- Display format: "<type_prefix> <name>" or "<type_prefix> <name>/<arity>"
 --- @param line string the display line from the float buffer
+--- @param type_prefixes string[] sorted list of known type prefixes
 --- @return string|nil prefix the type prefix, or nil if unparseable
 --- @return string|nil name the extracted name (without arity), or nil if unparseable
-local function parse_display_line(line)
+local function parse_display_line(line, type_prefixes)
   local trimmed = vim.trim(line)
   if trimmed == "" then
     return nil, nil
   end
 
   -- Try to strip known type prefixes (longest first)
-  for _, prefix in ipairs(TYPE_PREFIXES) do
+  for _, prefix in ipairs(type_prefixes) do
     if trimmed:sub(1, #prefix) == prefix then
       local rest = trimmed:sub(#prefix + 1)
       rest = vim.trim(rest)
@@ -55,29 +49,15 @@ local function parse_display_line(line)
   return nil, strip_arity(trimmed)
 end
 
---- Build an index mapping from display_type to entries (for matching by type prefix).
---- If there are duplicate types, they are stored in order.
---- @param entries table[] original entries
---- @return table<string, table[]> type_to_entries
-local function build_type_index(entries)
-  local index = {}
-  for _, entry in ipairs(entries) do
-    if not index[entry.display_type] then
-      index[entry.display_type] = {}
-    end
-    table.insert(index[entry.display_type], entry)
-  end
-  return index
-end
-
 --- Apply reordering and detect renames.
 --- @param source_bufnr number the source buffer handle
 --- @param original_entries table[] the original code point entries
 --- @param new_display_lines string[] the reordered/edited display lines from the float
+--- @param lang CodePointsLang the language module
 --- @return boolean ok
 --- @return string|nil error
 --- @return table[] renames list of { old_name: string, new_name: string }
-function M.apply(source_bufnr, original_entries, new_display_lines)
+function M.apply(source_bufnr, original_entries, new_display_lines, lang)
   if #new_display_lines == 0 then
     return false, "no entries in the reorder list", {}
   end
@@ -86,26 +66,24 @@ function M.apply(source_bufnr, original_entries, new_display_lines)
     return false, "line count mismatch: expected " .. #original_entries .. " entries, got " .. #new_display_lines .. ". Do not add or remove lines.", {}
   end
 
+  -- Build type prefixes from the language module
+  local type_prefixes = build_type_prefixes(lang)
+
   -- Parse each new display line into { prefix, name }
   local parsed_lines = {}
   for _, line in ipairs(new_display_lines) do
-    local prefix, name = parse_display_line(line)
+    local prefix, name = parse_display_line(line, type_prefixes)
     if not name then
       return false, "could not parse line: " .. line, {}
     end
     table.insert(parsed_lines, { prefix = prefix, name = name })
   end
 
-  -- Match each parsed line to an original entry by display_type (type prefix).
-  -- The type prefix is immutable — if the user changed it, we use the original
-  -- type prefix for matching by ignoring prefix changes.
-  --
-  -- Strategy: for each parsed line, find the best matching original entry:
-  --   1. Exact match (same prefix AND same name) — consumed first
-  --   2. Name-only match (different prefix but same name) — treat as prefix edit (ignored)
-  --   3. Prefix-only match (same prefix but different name) — this is a rename
-  --
-  -- We do this in two passes to prioritize exact matches.
+  -- Match each parsed line to an original entry.
+  -- Strategy: three-pass matching
+  --   Pass 1: exact name match (handles reorder-only)
+  --   Pass 2: type prefix match (handles renames)
+  --   Pass 3: fallback to any remaining unmatched
 
   local matched = {}       -- matched[i] = original entry index matched to new line i
   local used = {}          -- used[j] = true if original entry j has been claimed
@@ -122,10 +100,8 @@ function M.apply(source_bufnr, original_entries, new_display_lines)
   end
 
   -- Pass 2: remaining unmatched lines — match by display_type prefix
-  -- These are the rename candidates
   for i, parsed in ipairs(parsed_lines) do
     if not matched[i] then
-      -- Try matching by the parsed prefix first (user kept the prefix)
       for j, entry in ipairs(original_entries) do
         if not used[j] and parsed.prefix and parsed.prefix == entry.display_type then
           matched[i] = j

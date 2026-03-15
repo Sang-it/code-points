@@ -5,39 +5,24 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("code_points_hl")
 
--- Maps type prefix → { prefix_hl, name_hl }
-local HIGHLIGHT_MAP = {
-  ["function"]         = { prefix = "Keyword",  name = "Function" },
-  ["export function"]  = { prefix = "Keyword",  name = "Function" },
-  ["const"]            = { prefix = "Keyword",  name = "Identifier" },
-  ["let"]              = { prefix = "Keyword",  name = "Identifier" },
-  ["var"]              = { prefix = "Keyword",  name = "Identifier" },
-  ["export const"]     = { prefix = "Keyword",  name = "Identifier" },
-  ["export let"]       = { prefix = "Keyword",  name = "Identifier" },
-  ["export var"]       = { prefix = "Keyword",  name = "Identifier" },
-  ["class"]            = { prefix = "Type",     name = "Type" },
-  ["export class"]     = { prefix = "Type",     name = "Type" },
-  ["interface"]        = { prefix = "Type",     name = "Type" },
-  ["export interface"] = { prefix = "Type",     name = "Type" },
-  ["type"]             = { prefix = "Type",     name = "Type" },
-  ["export type"]      = { prefix = "Type",     name = "Type" },
-  ["enum"]             = { prefix = "Type",     name = "Type" },
-  ["export enum"]      = { prefix = "Type",     name = "Type" },
-  ["export"]           = { prefix = "Keyword",  name = "Identifier" },
-  ["expression"]       = { prefix = "Keyword",  name = "Identifier" },
-}
-
--- Sorted by length descending so we match two-word prefixes before one-word
-local SORTED_PREFIXES = {}
-for prefix in pairs(HIGHLIGHT_MAP) do
-  table.insert(SORTED_PREFIXES, prefix)
+--- Build a sorted list of prefixes from a highlights table (longest first).
+--- @param highlights table<string, table> map of display_type → { prefix, name }
+--- @return string[] sorted_prefixes
+local function build_sorted_prefixes(highlights)
+  local prefixes = {}
+  for prefix in pairs(highlights) do
+    table.insert(prefixes, prefix)
+  end
+  table.sort(prefixes, function(a, b) return #a > #b end)
+  return prefixes
 end
-table.sort(SORTED_PREFIXES, function(a, b) return #a > #b end)
 
 --- Apply syntax highlighting to all lines in the code points buffer.
---- Each line has the format: <type_prefix> <name>
+--- Each line has the format: <type_prefix> <name> or <type_prefix> <name>/<arity>
 --- @param buf number buffer handle
-local function apply_highlights(buf)
+--- @param highlights table<string, table> map of display_type → { prefix, name }
+--- @param sorted_prefixes string[] prefixes sorted by length descending
+local function apply_highlights(buf, highlights, sorted_prefixes)
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
 
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -47,7 +32,7 @@ local function apply_highlights(buf)
 
     -- Find the matching type prefix (longest match first)
     local matched_prefix = nil
-    for _, prefix in ipairs(SORTED_PREFIXES) do
+    for _, prefix in ipairs(sorted_prefixes) do
       if line:sub(1, #prefix) == prefix and line:sub(#prefix + 1, #prefix + 1) == " " then
         matched_prefix = prefix
         break
@@ -55,7 +40,7 @@ local function apply_highlights(buf)
     end
 
     if matched_prefix then
-      local hl = HIGHLIGHT_MAP[matched_prefix]
+      local hl = highlights[matched_prefix]
 
       -- Highlight the type prefix
       vim.api.nvim_buf_add_highlight(buf, ns, hl.prefix, lnum, 0, #matched_prefix)
@@ -125,7 +110,12 @@ end
 --- Open the code points floating window.
 --- @param source_bufnr number the source buffer to operate on
 --- @param entries table[] list of code point entries from treesitter module
-function M.open(source_bufnr, entries)
+--- @param lang CodePointsLang the language module
+function M.open(source_bufnr, entries, lang)
+  -- Build highlight data from the language module
+  local highlights = lang.highlights or {}
+  local sorted_prefixes = build_sorted_prefixes(highlights)
+
   -- Create a scratch buffer with acwrite so :w triggers BufWriteCmd
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_option_value("buftype", "acwrite", { buf = buf })
@@ -146,7 +136,7 @@ function M.open(source_bufnr, entries)
   local win = open_centered_float(buf, "Code Points")
 
   -- Apply initial syntax highlighting
-  apply_highlights(buf)
+  apply_highlights(buf, highlights, sorted_prefixes)
 
   -- Add help footer at the bottom of the window
   local footer_ns = vim.api.nvim_create_namespace("code_points_footer")
@@ -174,7 +164,7 @@ function M.open(source_bufnr, entries)
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     buffer = buf,
     callback = function()
-      apply_highlights(buf)
+      apply_highlights(buf, highlights, sorted_prefixes)
       update_footer()
     end,
   })
@@ -238,7 +228,7 @@ function M.open(source_bufnr, entries)
         end
       end
 
-      local ok, err, renames = reorder.apply(source_bufnr, entries, filtered)
+      local ok, err, renames = reorder.apply(source_bufnr, entries, filtered, lang)
       if not ok then
         vim.notify("CodePoints: " .. (err or "unknown error"), vim.log.levels.ERROR)
         return
