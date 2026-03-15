@@ -7,6 +7,7 @@ local lang_registry = {}
 --- Filetype aliases for auto-loading (e.g., typescriptreact → typescript module).
 local FT_ALIASES = {
   typescriptreact = "typescript",
+  javascriptreact = "javascript",
 }
 
 --- Register a language module for all its filetypes.

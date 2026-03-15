@@ -1,0 +1,192 @@
+local M = {}
+
+M.filetypes = { "javascript", "javascriptreact" }
+
+M.parsers = {
+  javascript = "javascript",
+  javascriptreact = "javascript",
+}
+
+local DECLARATION_TYPES = {
+  function_declaration = "function",
+  lexical_declaration = "variable",
+  variable_declaration = "variable",
+  class_declaration = "class",
+  export_statement = "export",
+  expression_statement = "expression",
+}
+
+local SKIP_TYPES = {
+  comment = true,
+  import_statement = true,
+}
+
+M.highlights = {
+  ["function"]         = { prefix = "Keyword",  name = "Function" },
+  ["export function"]  = { prefix = "Keyword",  name = "Function" },
+  ["const"]            = { prefix = "Keyword",  name = "Identifier" },
+  ["let"]              = { prefix = "Keyword",  name = "Identifier" },
+  ["var"]              = { prefix = "Keyword",  name = "Identifier" },
+  ["export const"]     = { prefix = "Keyword",  name = "Identifier" },
+  ["export let"]       = { prefix = "Keyword",  name = "Identifier" },
+  ["export var"]       = { prefix = "Keyword",  name = "Identifier" },
+  ["class"]            = { prefix = "Type",     name = "Type" },
+  ["export class"]     = { prefix = "Type",     name = "Type" },
+  ["export"]           = { prefix = "Keyword",  name = "Identifier" },
+  ["expression"]       = { prefix = "Keyword",  name = "Identifier" },
+}
+
+function M.is_declaration(node)
+  return not SKIP_TYPES[node:type()]
+end
+
+function M.get_name(node, bufnr)
+  local node_type = node:type()
+
+  if node_type == "function_declaration" or node_type == "class_declaration" then
+    local name_node = node:field("name")[1]
+    if name_node then
+      return vim.treesitter.get_node_text(name_node, bufnr)
+    end
+  end
+
+  if node_type == "lexical_declaration" or node_type == "variable_declaration" then
+    for child in node:iter_children() do
+      if child:type() == "variable_declarator" then
+        local name_node = child:field("name")[1]
+        if name_node then
+          return vim.treesitter.get_node_text(name_node, bufnr)
+        end
+      end
+    end
+  end
+
+  if node_type == "export_statement" then
+    for child in node:iter_children() do
+      local child_type = child:type()
+      if DECLARATION_TYPES[child_type] and child_type ~= "export_statement" then
+        return M.get_name(child, bufnr)
+      end
+    end
+    local text = vim.treesitter.get_node_text(node, bufnr)
+    local first_line = text:match("^([^\n]*)")
+    if #first_line > 40 then
+      first_line = first_line:sub(1, 37) .. "..."
+    end
+    return first_line
+  end
+
+  if node_type == "expression_statement" then
+    local text = vim.treesitter.get_node_text(node, bufnr)
+    local first_line = text:match("^([^\n]*)")
+    if #first_line > 40 then
+      first_line = first_line:sub(1, 37) .. "..."
+    end
+    return first_line
+  end
+
+  return "[unknown]"
+end
+
+local function get_variable_keyword(node, bufnr)
+  for child in node:iter_children() do
+    local text = vim.treesitter.get_node_text(child, bufnr)
+    if text == "const" or text == "let" or text == "var" then
+      return text
+    end
+  end
+  return "var"
+end
+
+function M.get_display_type(node, bufnr)
+  local node_type = node:type()
+
+  if node_type == "export_statement" then
+    for child in node:iter_children() do
+      local child_type = child:type()
+      if DECLARATION_TYPES[child_type] and child_type ~= "export_statement" then
+        if child_type == "lexical_declaration" or child_type == "variable_declaration" then
+          return "export " .. get_variable_keyword(child, bufnr)
+        end
+        return "export " .. DECLARATION_TYPES[child_type]
+      end
+    end
+    return "export"
+  end
+
+  if node_type == "lexical_declaration" or node_type == "variable_declaration" then
+    return get_variable_keyword(node, bufnr)
+  end
+
+  return DECLARATION_TYPES[node_type] or node_type
+end
+
+function M.get_arity(node, _bufnr)
+  local node_type = node:type()
+
+  if node_type == "function_declaration"
+    or node_type == "function"
+    or node_type == "generator_function"
+    or node_type == "generator_function_declaration"
+  then
+    local params = node:field("parameters")[1]
+    if params then
+      local count = 0
+      for child in params:iter_children() do
+        local ct = child:type()
+        if ct ~= "," and ct ~= "(" and ct ~= ")" then
+          count = count + 1
+        end
+      end
+      return count
+    end
+    return 0
+  end
+
+  if node_type == "arrow_function" then
+    local params = node:field("parameters")[1]
+    if params then
+      if params:type() == "identifier" then
+        return 1
+      end
+      local count = 0
+      for child in params:iter_children() do
+        local ct = child:type()
+        if ct ~= "," and ct ~= "(" and ct ~= ")" then
+          count = count + 1
+        end
+      end
+      return count
+    end
+    return 0
+  end
+
+  if node_type == "lexical_declaration" or node_type == "variable_declaration" then
+    for child in node:iter_children() do
+      if child:type() == "variable_declarator" then
+        local value = child:field("value")[1]
+        if value then
+          local vt = value:type()
+          if vt == "arrow_function" or vt == "function" or vt == "generator_function" then
+            return M.get_arity(value, _bufnr)
+          end
+        end
+      end
+    end
+    return nil
+  end
+
+  if node_type == "export_statement" then
+    for child in node:iter_children() do
+      local child_type = child:type()
+      if DECLARATION_TYPES[child_type] and child_type ~= "export_statement" then
+        return M.get_arity(child, _bufnr)
+      end
+    end
+    return nil
+  end
+
+  return nil
+end
+
+return M
