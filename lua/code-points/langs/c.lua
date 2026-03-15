@@ -8,6 +8,7 @@ M.parsers = {
 }
 
 M.comment_types = { comment = true }
+M.comment_prefix = "//"
 
 local SKIP_TYPES = {
   comment = true,

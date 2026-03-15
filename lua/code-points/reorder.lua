@@ -27,6 +27,23 @@ local function strip_arity(name)
   return name:match("^(.+)/%d+$") or name
 end
 
+--- Translate a comment line from universal // prefix to the language's native syntax.
+--- e.g., "// my comment" → "# my comment" for Python, "-- my comment" for Lua.
+--- @param line string the comment line starting with //
+--- @param lang_prefix string the language's native comment prefix
+--- @return string translated comment line
+local function translate_comment(line, lang_prefix)
+  if lang_prefix == "//" then
+    return line -- no translation needed
+  end
+  -- Strip the // prefix and replace with the native prefix
+  local content = line:match("^//(.*)")
+  if content then
+    return lang_prefix .. content
+  end
+  return line
+end
+
 --- Check if a display line is a child (has indent prefix).
 --- @param line string
 --- @return boolean is_child
@@ -234,25 +251,36 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
 
   -- Parse display lines into a tree structure:
   -- Group consecutive child lines under their preceding parent line.
-  local parsed_groups = {} -- list of { prefix, name, children = { {prefix, name}, ... } }
+  -- Lines starting with "//" are new comments to be written to the source file.
+  local parsed_groups = {} -- list of { prefix, name, children, new_comments }
 
   local current_parent = nil
+  local pending_comments = {} -- comment lines waiting to be attached to the next parent
+
   for _, line in ipairs(new_display_lines) do
-    local is_child, content = parse_child_prefix(line)
-    local prefix, name = parse_display_content(content, type_prefixes)
+    local trimmed = vim.trim(line)
 
-    if not name then
-      return false, "could not parse line: " .. line, {}
-    end
-
-    if is_child then
-      if not current_parent then
-        return false, "child line without parent: " .. line, {}
-      end
-      table.insert(current_parent.children, { prefix = prefix, name = name })
+    -- Check if this is a new comment line (starts with //)
+    if trimmed:sub(1, 2) == "//" then
+      table.insert(pending_comments, trimmed)
     else
-      current_parent = { prefix = prefix, name = name, children = {} }
-      table.insert(parsed_groups, current_parent)
+      local is_child, content = parse_child_prefix(line)
+      local prefix, name = parse_display_content(content, type_prefixes)
+
+      if not name then
+        return false, "could not parse line: " .. line, {}
+      end
+
+      if is_child then
+        if not current_parent then
+          return false, "child line without parent: " .. line, {}
+        end
+        table.insert(current_parent.children, { prefix = prefix, name = name })
+      else
+        current_parent = { prefix = prefix, name = name, children = {}, new_comments = pending_comments }
+        pending_comments = {}
+        table.insert(parsed_groups, current_parent)
+      end
     end
   end
 
@@ -293,6 +321,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
       display_type = orig_entry.display_type,
       arity = orig_entry.arity,
       start_row = orig_entry.start_row,
+      decl_start_row = orig_entry.decl_start_row,
       end_row = orig_entry.end_row,
       lines = orig_entry.lines,
       children = orig_entry.children,
@@ -376,6 +405,8 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
     table.insert(result, line)
   end
 
+  local lang_prefix = lang.comment_prefix or "//"
+
   for i, entry in ipairs(ordered_entries) do
     -- Add a blank line separator before the first entry (if preamble exists)
     if i == 1 and #preamble > 0 then
@@ -384,9 +415,35 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
       end
     end
 
-    -- Add the entry's lines
-    for _, line in ipairs(entry.lines) do
-      table.insert(result, line)
+    -- Add the entry's lines, inserting new comments between existing comments and the declaration
+    local group = parsed_groups[i]
+    local has_new_comments = group.new_comments and #group.new_comments > 0
+    local comment_line_count = entry.decl_start_row - entry.start_row
+
+    if has_new_comments and comment_line_count > 0 then
+      -- Entry has existing comments: insert existing comments, then new comments, then declaration
+      for j = 1, comment_line_count do
+        table.insert(result, entry.lines[j])
+      end
+      for _, comment_line in ipairs(group.new_comments) do
+        table.insert(result, translate_comment(comment_line, lang_prefix))
+      end
+      for j = comment_line_count + 1, #entry.lines do
+        table.insert(result, entry.lines[j])
+      end
+    elseif has_new_comments then
+      -- No existing comments: insert new comments, then the entry
+      for _, comment_line in ipairs(group.new_comments) do
+        table.insert(result, translate_comment(comment_line, lang_prefix))
+      end
+      for _, line in ipairs(entry.lines) do
+        table.insert(result, line)
+      end
+    else
+      -- No new comments: just add the entry as-is
+      for _, line in ipairs(entry.lines) do
+        table.insert(result, line)
+      end
     end
 
     -- Add the trailing gap from the original entry

@@ -83,6 +83,7 @@ local function build_entry(node, lang, bufnr, sr_override)
     display_type = lang.get_display_type(node, bufnr),
     arity = lang.get_arity(node, bufnr),
     start_row = effective_sr,
+    decl_start_row = sr, -- the actual declaration start (without leading comments)
     end_row = er,
     lines = vim.api.nvim_buf_get_lines(bufnr, effective_sr, er + 1, false),
     children = nil,

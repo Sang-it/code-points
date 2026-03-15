@@ -9,6 +9,7 @@ M.parsers = {
 }
 
 M.comment_types = { comment = true }
+M.comment_prefix = "//"
 
 -- Node types we consider as reorderable code points
 local DECLARATION_TYPES = {

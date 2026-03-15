@@ -69,6 +69,13 @@ local function apply_highlights(buf, highlights, sorted_prefixes)
   for i, line in ipairs(lines) do
     local lnum = i - 1 -- 0-indexed
 
+    -- Check if this is a user-written comment line (starts with //)
+    local trimmed = vim.trim(line)
+    if trimmed:sub(1, 2) == "//" then
+      vim.api.nvim_buf_add_highlight(buf, ns, "Comment", lnum, 0, -1)
+      goto continue
+    end
+
     -- Detect indentation (tree chars or spaces)
     local content_start = 0
     local is_child = false
@@ -110,9 +117,10 @@ local function apply_highlights(buf, highlights, sorted_prefixes)
         vim.api.nvim_buf_add_highlight(buf, ns, hl.name, lnum, name_start, name_end)
         vim.api.nvim_buf_add_highlight(buf, ns, "Comment", lnum, name_end, name_end + #arity_part)
       else
-        vim.api.nvim_buf_add_highlight(buf, ns, hl.name, lnum, name_start, -1)
+         vim.api.nvim_buf_add_highlight(buf, ns, hl.name, lnum, name_start, -1)
       end
     end
+    ::continue::
   end
 end
 

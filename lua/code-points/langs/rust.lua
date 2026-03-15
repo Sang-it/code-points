@@ -7,6 +7,7 @@ M.parsers = {
 }
 
 M.comment_types = { line_comment = true, block_comment = true }
+M.comment_prefix = "//"
 
 local DECLARATION_TYPES = {
   function_item = "fn",
