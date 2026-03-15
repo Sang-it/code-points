@@ -286,10 +286,15 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
         return false, "in '" .. orig_entry.name .. "': " .. child_err, {}
       end
 
-      -- Build ordered children
+      -- Build ordered children and detect child renames
       local ordered_children = {}
       for j = 1, #group.children do
-        table.insert(ordered_children, orig_children[child_matched[j]])
+        local orig_child = orig_children[child_matched[j]]
+        table.insert(ordered_children, orig_child)
+
+        if group.children[j].name ~= orig_child.name then
+          table.insert(renames, { old_name = orig_child.name, new_name = group.children[j].name })
+        end
       end
 
       -- If children order changed, reconstruct the parent body
