@@ -1,3 +1,5 @@
+local diff = require("code-points.diff")
+
 local M = {}
 
 --- Build a sorted list of type prefixes from a lang's highlights table.
@@ -192,8 +194,8 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
     table.insert(result, line)
   end
 
-  -- Replace the entire source buffer
-  vim.api.nvim_buf_set_lines(source_bufnr, 0, -1, false, result)
+  -- Apply changes using minimal diff to avoid syntax highlighting flicker
+  diff.apply_minimal(source_bufnr, result)
 
   return true, nil, renames
 end
