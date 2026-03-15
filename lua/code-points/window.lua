@@ -1,4 +1,5 @@
 local reorder = require("code-points.reorder")
+local rename = require("code-points.rename")
 
 local M = {}
 
@@ -166,7 +167,7 @@ function M.open(source_bufnr, entries)
     end
   end, { buffer = buf, noremap = true, silent = true, desc = "Close Code Points window" })
 
-  -- Handle :w — intercept the save and apply reordering
+  -- Handle :w — intercept the save and apply reordering + renames
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     buffer = buf,
     callback = function()
@@ -181,17 +182,41 @@ function M.open(source_bufnr, entries)
         end
       end
 
-      local ok, err = reorder.apply(source_bufnr, entries, filtered)
-      if ok then
-        vim.api.nvim_set_option_value("modified", false, { buf = buf })
-        vim.notify("CodePoints: reorder applied", vim.log.levels.INFO)
+      local ok, err, renames = reorder.apply(source_bufnr, entries, filtered)
+      if not ok then
+        vim.notify("CodePoints: " .. (err or "unknown error"), vim.log.levels.ERROR)
+        return
+      end
 
-        -- Close the window after successful save
+      vim.api.nvim_set_option_value("modified", false, { buf = buf })
+
+      -- Close the window
+      local function close_window()
         if vim.api.nvim_win_is_valid(win) then
           vim.api.nvim_win_close(win, true)
         end
+      end
+
+      -- Apply LSP renames if any names were changed
+      if renames and #renames > 0 then
+        if not rename.has_rename_support(source_bufnr) then
+          vim.notify(
+            "CodePoints: reorder applied, but no LSP client with rename support is attached. "
+              .. #renames .. " rename(s) skipped.",
+            vim.log.levels.WARN
+          )
+          close_window()
+          return
+        end
+
+        vim.notify("CodePoints: reorder applied, processing " .. #renames .. " rename(s)...", vim.log.levels.INFO)
+        rename.apply_renames(source_bufnr, renames, function()
+          vim.notify("CodePoints: all renames complete", vim.log.levels.INFO)
+          close_window()
+        end)
       else
-        vim.notify("CodePoints: " .. (err or "unknown error"), vim.log.levels.ERROR)
+        vim.notify("CodePoints: reorder applied", vim.log.levels.INFO)
+        close_window()
       end
     end,
   })
