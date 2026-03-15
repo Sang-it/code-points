@@ -156,4 +156,36 @@ function M.get_arity(node, bufnr)
   return nil
 end
 
+function M.is_nestable(node)
+  local t = node:type()
+  return t == "class_definition" or t == "decorated_definition"
+    and (function()
+      local inner = get_inner_definition(node)
+      return inner and inner:type() == "class_definition"
+    end)()
+end
+
+function M.get_body_node(node)
+  local target = node
+  if node:type() == "decorated_definition" then
+    target = get_inner_definition(node)
+  end
+  if target and target:type() == "class_definition" then
+    local body = target:field("body")[1]
+    return body
+  end
+  return nil
+end
+
+local CHILD_TYPES = {
+  function_definition = true,
+  decorated_definition = true,
+  assignment = true,
+  expression_statement = true,
+}
+
+function M.is_child_declaration(node)
+  return CHILD_TYPES[node:type()] or false
+end
+
 return M

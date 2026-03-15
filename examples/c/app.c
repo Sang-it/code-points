@@ -11,12 +11,12 @@ typedef struct {
     int count;
 } Registry;
 
-static int next_id = 1;
-
 enum SortOrder {
     SORT_ASC,
     SORT_DESC,
 };
+
+static int next_id = 1;
 
 const char *APP_VERSION = "1.0.0";
 

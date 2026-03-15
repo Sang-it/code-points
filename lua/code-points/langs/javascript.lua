@@ -34,6 +34,8 @@ M.highlights = {
   ["export class"]     = { prefix = "Type",     name = "Type" },
   ["export"]           = { prefix = "Keyword",  name = "Identifier" },
   ["expression"]       = { prefix = "Keyword",  name = "Identifier" },
+  ["method"]           = { prefix = "Keyword",  name = "Function" },
+  ["field"]            = { prefix = "Keyword",  name = "Identifier" },
 }
 
 function M.is_declaration(node)
@@ -85,6 +87,21 @@ function M.get_name(node, bufnr)
     return first_line
   end
 
+  -- Class members
+  if node_type == "method_definition" then
+    local name_node = node:field("name")[1]
+    if name_node then
+      return vim.treesitter.get_node_text(name_node, bufnr)
+    end
+  end
+
+  if node_type == "field_definition" then
+    local name_node = node:field("property")[1]
+    if name_node then
+      return vim.treesitter.get_node_text(name_node, bufnr)
+    end
+  end
+
   return "[unknown]"
 end
 
@@ -118,6 +135,10 @@ function M.get_display_type(node, bufnr)
     return get_variable_keyword(node, bufnr)
   end
 
+  -- Class members
+  if node_type == "method_definition" then return "method" end
+  if node_type == "field_definition" then return "field" end
+
   return DECLARATION_TYPES[node_type] or node_type
 end
 
@@ -128,6 +149,7 @@ function M.get_arity(node, _bufnr)
     or node_type == "function"
     or node_type == "generator_function"
     or node_type == "generator_function_declaration"
+    or node_type == "method_definition"
   then
     local params = node:field("parameters")[1]
     if params then
@@ -187,6 +209,30 @@ function M.get_arity(node, _bufnr)
   end
 
   return nil
+end
+
+function M.is_nestable(node)
+  return node:type() == "class_declaration"
+end
+
+function M.get_body_node(node)
+  if node:type() == "class_declaration" then
+    for child in node:iter_children() do
+      if child:type() == "class_body" then
+        return child
+      end
+    end
+  end
+  return nil
+end
+
+local CHILD_TYPES = {
+  method_definition = true,
+  field_definition = true,
+}
+
+function M.is_child_declaration(node)
+  return CHILD_TYPES[node:type()] or false
 end
 
 return M

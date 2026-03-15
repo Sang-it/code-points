@@ -5,6 +5,10 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("code_points_hl")
 
+-- Child indentation
+local CHILD_PREFIX = "  • " -- 2 spaces + bullet + space
+local CHILD_PREFIX_LEN = #CHILD_PREFIX
+
 --- Build a sorted list of prefixes from a highlights table (longest first).
 --- @param highlights table<string, table> map of display_type → { prefix, name }
 --- @return string[] sorted_prefixes
@@ -17,8 +21,43 @@ local function build_sorted_prefixes(highlights)
   return prefixes
 end
 
+--- Build a single display string for an entry (without tree prefix).
+--- @param entry table code point entry
+--- @return string display
+local function entry_display(entry)
+  local display = entry.display_type .. " " .. entry.name
+  if entry.arity then
+    display = display .. "/" .. entry.arity
+  end
+  return display
+end
+
+--- Build display lines and a flat entry map from code point entries.
+--- The flat_map maps each 1-indexed buffer line to its entry (parent or child).
+--- @param entries table[] list of code point entries from treesitter module
+--- @return string[] display_lines
+--- @return table[] flat_map list of { entry, parent_index, child_index }
+local function build_display_lines(entries)
+  local lines = {}
+  local flat_map = {}
+
+  for i, entry in ipairs(entries) do
+    table.insert(lines, entry_display(entry))
+    table.insert(flat_map, { entry = entry, parent_index = i, child_index = nil })
+
+    if entry.children and #entry.children > 0 then
+      for j, child in ipairs(entry.children) do
+        table.insert(lines, CHILD_PREFIX .. entry_display(child))
+        table.insert(flat_map, { entry = child, parent_index = i, child_index = j })
+      end
+    end
+  end
+
+  return lines, flat_map
+end
+
 --- Apply syntax highlighting to all lines in the code points buffer.
---- Each line has the format: <type_prefix> <name> or <type_prefix> <name>/<arity>
+--- Handles both top-level lines and indented child lines with tree chars.
 --- @param buf number buffer handle
 --- @param highlights table<string, table> map of display_type → { prefix, name }
 --- @param sorted_prefixes string[] prefixes sorted by length descending
@@ -30,10 +69,24 @@ local function apply_highlights(buf, highlights, sorted_prefixes)
   for i, line in ipairs(lines) do
     local lnum = i - 1 -- 0-indexed
 
+    -- Detect indentation (tree chars or spaces)
+    local content_start = 0
+    local is_child = false
+
+    -- Check for child indent prefix
+    if line:sub(1, CHILD_PREFIX_LEN) == CHILD_PREFIX then
+      content_start = CHILD_PREFIX_LEN
+      is_child = true
+      -- Highlight the bullet as Comment
+      vim.api.nvim_buf_add_highlight(buf, ns, "Comment", lnum, 0, CHILD_PREFIX_LEN)
+    end
+
+    local content = line:sub(content_start + 1)
+
     -- Find the matching type prefix (longest match first)
     local matched_prefix = nil
     for _, prefix in ipairs(sorted_prefixes) do
-      if line:sub(1, #prefix) == prefix and line:sub(#prefix + 1, #prefix + 1) == " " then
+      if content:sub(1, #prefix) == prefix and content:sub(#prefix + 1, #prefix + 1) == " " then
         matched_prefix = prefix
         break
       end
@@ -41,15 +94,16 @@ local function apply_highlights(buf, highlights, sorted_prefixes)
 
     if matched_prefix then
       local hl = highlights[matched_prefix]
+      local prefix_start = content_start
+      local prefix_end = content_start + #matched_prefix
 
       -- Highlight the type prefix
-      vim.api.nvim_buf_add_highlight(buf, ns, hl.prefix, lnum, 0, #matched_prefix)
+      vim.api.nvim_buf_add_highlight(buf, ns, hl.prefix, lnum, prefix_start, prefix_end)
 
       -- Highlight the symbol name and arity
-      local after_prefix = line:sub(#matched_prefix + 2) -- skip prefix + space
-      local name_start = #matched_prefix + 1 -- byte after the space
+      local after_prefix = content:sub(#matched_prefix + 2)
+      local name_start = prefix_end + 1 -- after the space
 
-      -- Check if there's an arity suffix like "/2"
       local name_part, arity_part = after_prefix:match("^(.+)(/%d+)$")
       if name_part and arity_part then
         local name_end = name_start + #name_part
@@ -60,22 +114,6 @@ local function apply_highlights(buf, highlights, sorted_prefixes)
       end
     end
   end
-end
-
---- Build display lines from code point entries.
---- Format: "type name" or "type name/arity" for functions
---- @param entries table[] list of code point entries from treesitter module
---- @return string[] display_lines
-local function build_display_lines(entries)
-  local lines = {}
-  for _, entry in ipairs(entries) do
-    local display = entry.display_type .. " " .. entry.name
-    if entry.arity then
-      display = display .. "/" .. entry.arity
-    end
-    table.insert(lines, display)
-  end
-  return lines
 end
 
 --- Create a centered floating window.
@@ -123,7 +161,7 @@ function M.open(source_bufnr, entries, lang)
   vim.api.nvim_set_option_value("swapfile", false, { buf = buf })
 
   -- Populate the buffer with display lines
-  local display_lines = build_display_lines(entries)
+  local display_lines, flat_map = build_display_lines(entries)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, display_lines)
 
   -- Mark the buffer as unmodified after initial population
@@ -144,7 +182,6 @@ function M.open(source_bufnr, entries, lang)
     vim.api.nvim_buf_clear_namespace(buf, footer_ns, 0, -1)
     local line_count = vim.api.nvim_buf_line_count(buf)
     local win_height = vim.api.nvim_win_get_height(win)
-    -- Calculate how many blank lines to pad before the footer
     local pad = win_height - line_count - 1
     local virt_lines = {}
     if pad > 0 then
@@ -160,7 +197,7 @@ function M.open(source_bufnr, entries, lang)
   end
   update_footer()
 
-  -- Refresh highlights and footer when buffer text changes (e.g., after dd+p to move lines)
+  -- Refresh highlights and footer when buffer text changes
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     buffer = buf,
     callback = function()
@@ -200,8 +237,8 @@ function M.open(source_bufnr, entries, lang)
   -- Map <CR> to jump to the code point under cursor
   vim.keymap.set("n", "<CR>", function()
     local cursor_line = vim.api.nvim_win_get_cursor(win)[1] -- 1-indexed
-    local entry = entries[cursor_line]
-    if not entry then return end
+    local map_entry = flat_map[cursor_line]
+    if not map_entry then return end
 
     -- Close the float first
     if vim.api.nvim_win_is_valid(win) then
@@ -210,7 +247,7 @@ function M.open(source_bufnr, entries, lang)
 
     -- Jump to the code point in the source buffer
     vim.api.nvim_set_current_buf(source_bufnr)
-    vim.api.nvim_win_set_cursor(0, { entry.start_row + 1, 0 })
+    vim.api.nvim_win_set_cursor(0, { map_entry.entry.start_row + 1, 0 })
   end, { buffer = buf, noremap = true, silent = true, desc = "Jump to code point" })
 
   -- Handle :w — intercept the save and apply reordering + renames
@@ -224,7 +261,7 @@ function M.open(source_bufnr, entries, lang)
       for _, line in ipairs(new_lines) do
         local trimmed = vim.trim(line)
         if trimmed ~= "" then
-          table.insert(filtered, trimmed)
+          table.insert(filtered, line) -- keep original line (with tree chars)
         end
       end
 
@@ -236,8 +273,19 @@ function M.open(source_bufnr, entries, lang)
 
       vim.api.nvim_set_option_value("modified", false, { buf = buf })
 
-      -- Close the window
-      local function close_window()
+      -- Format via LSP if available, then close the window
+      local function finish()
+        local clients = vim.lsp.get_clients({ bufnr = source_bufnr })
+        local has_formatter = false
+        for _, client in ipairs(clients) do
+          if client.server_capabilities.documentFormattingProvider then
+            has_formatter = true
+            break
+          end
+        end
+        if has_formatter then
+          vim.lsp.buf.format({ async = false, bufnr = source_bufnr })
+        end
         if vim.api.nvim_win_is_valid(win) then
           vim.api.nvim_win_close(win, true)
         end
@@ -251,18 +299,18 @@ function M.open(source_bufnr, entries, lang)
               .. #renames .. " rename(s) skipped.",
             vim.log.levels.WARN
           )
-          close_window()
+          finish()
           return
         end
 
         vim.notify("CodePoints: reorder applied, processing " .. #renames .. " rename(s)...", vim.log.levels.INFO)
         rename.apply_renames(source_bufnr, renames, function()
           vim.notify("CodePoints: all renames complete", vim.log.levels.INFO)
-          close_window()
+          finish()
         end)
       else
         vim.notify("CodePoints: reorder applied", vim.log.levels.INFO)
-        close_window()
+        finish()
       end
     end,
   })

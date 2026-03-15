@@ -29,13 +29,13 @@ class UserRepository:
         return list(self._users)
 
 
-def validate_email(email: str) -> bool:
-    return "@" in email and "." in email.split("@")[-1]
-
-
 async def fetch_user(user_id: int) -> dict:
     await asyncio.sleep(0.1)
     return {"id": user_id, "name": f"User {user_id}"}
+
+
+def validate_email(email: str) -> bool:
+    return "@" in email and "." in email.split("@")[-1]
 
 
 def serialize_user(user: User) -> str:

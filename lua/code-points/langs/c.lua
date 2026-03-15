@@ -270,4 +270,32 @@ function M.get_arity(node, _bufnr)
   return nil
 end
 
+-- C++ class nesting support
+function M.is_nestable(node)
+  return node:type() == "class_specifier"
+end
+
+function M.get_body_node(node)
+  if node:type() == "class_specifier" then
+    for child in node:iter_children() do
+      if child:type() == "field_declaration_list" then
+        return child
+      end
+    end
+  end
+  return nil
+end
+
+local CPP_CHILD_TYPES = {
+  function_definition = true,
+  declaration = true,
+}
+
+function M.is_child_declaration(node)
+  local t = node:type()
+  -- Skip access specifiers (public:, private:, protected:)
+  if t == "access_specifier" then return false end
+  return CPP_CHILD_TYPES[t] or false
+end
+
 return M

@@ -46,9 +46,48 @@ function M.get_lang(ft)
   return nil
 end
 
+--- Adjust end_row for nodes whose range includes a trailing newline.
+--- If end_col is 0 and end_row > start_row, the node ends at the start of
+--- end_row (just the trailing newline from the previous line).
+--- @param sr number start_row (0-indexed)
+--- @param er number end_row (0-indexed)
+--- @param ec number end_col
+--- @return number adjusted end_row
+local function adjust_end_row(sr, er, ec)
+  if ec == 0 and er > sr then
+    return er - 1
+  end
+  return er
+end
+
+--- Build a single entry from a treesitter node.
+--- @param node any treesitter node
+--- @param lang CodePointsLang language module
+--- @param bufnr number buffer handle
+--- @return table entry
+local function build_entry(node, lang, bufnr)
+  local sr, _, er, ec = node:range()
+  er = adjust_end_row(sr, er, ec)
+
+  local name = lang.get_name(node, bufnr)
+  if not name or name == "[unknown]" then
+    name = "<L" .. (sr + 1) .. ">"
+  end
+
+  return {
+    name = name,
+    display_type = lang.get_display_type(node, bufnr),
+    arity = lang.get_arity(node, bufnr),
+    start_row = sr,
+    end_row = er,
+    lines = vim.api.nvim_buf_get_lines(bufnr, sr, er + 1, false),
+    children = nil,
+  }
+end
+
 --- Extract all top-level code points from a buffer using the appropriate language module.
 --- @param bufnr number buffer handle
---- @return table[] entries list of { name, display_type, arity, start_row, end_row, lines }
+--- @return table[] entries list of entries (with optional children)
 --- @return CodePointsLang|nil lang the language module used
 function M.get_code_points(bufnr)
   local ft = vim.bo[bufnr].filetype
@@ -78,30 +117,29 @@ function M.get_code_points(bufnr)
 
   for child in root:iter_children() do
     if lang.is_declaration(child) then
-      local sr, _, er, ec = child:range()
+      local entry = build_entry(child, lang, bufnr)
 
-      -- If end_col is 0, the node ends at the start of end_row (i.e., just the
-      -- newline of the previous line). Don't include that extra line.
-      -- This is common with preprocessor directives in C/C++.
-      if ec == 0 and er > sr then
-        er = er - 1
+      -- Check if this node has nestable children (e.g., methods in a class/impl)
+      if lang.is_nestable and lang.get_body_node and lang.is_child_declaration then
+        if lang.is_nestable(child) then
+          local body = lang.get_body_node(child)
+          if body then
+            entry.children = {}
+            for grandchild in body:iter_children() do
+              if lang.is_child_declaration(grandchild) then
+                local child_entry = build_entry(grandchild, lang, bufnr)
+                table.insert(entry.children, child_entry)
+              end
+            end
+            -- If no children found, set to nil
+            if #entry.children == 0 then
+              entry.children = nil
+            end
+          end
+        end
       end
 
-      local name = lang.get_name(child, bufnr)
-
-      -- Fallback: if the language module couldn't extract a name, use the line number
-      if not name or name == "[unknown]" then
-        name = "<L" .. (sr + 1) .. ">"
-      end
-
-      table.insert(entries, {
-        name = name,
-        display_type = lang.get_display_type(child, bufnr),
-        arity = lang.get_arity(child, bufnr),
-        start_row = sr,
-        end_row = er,
-        lines = vim.api.nvim_buf_get_lines(bufnr, sr, er + 1, false),
-      })
+      table.insert(entries, entry)
     end
   end
 

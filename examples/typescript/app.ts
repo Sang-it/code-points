@@ -4,6 +4,26 @@ let activeCount = 0;
 
 const MAX_CONNECTIONS = 100;
 
+class ConnectionPools {
+  remove(id: string): void {
+    this.connections.delete(id);
+    activeCount--;
+  }
+
+  add(id: string): void {
+    this.connections.set(id, "idle");
+    activeCount++;
+  }
+
+  getActive(): string[] {
+    return [...this.connections.entries()]
+      .filter(([_, state]) => state === "active")
+      .map(([id]) => id);
+  }
+
+  private connections: Map<string, ConnectionState> = new Map();
+}
+
 interface ServerConfig {
   host: string;
   port: number;
@@ -19,32 +39,12 @@ enum LogLevel {
   Error = "ERROR",
 }
 
-class ConnectionPool {
-  private connections: Map<string, ConnectionState> = new Map();
-
-  add(id: string): void {
-    this.connections.set(id, "idle");
-    activeCount++;
-  }
-
-  remove(id: string): void {
-    this.connections.delete(id);
-    activeCount--;
-  }
-
-  getActive(): string[] {
-    return [...this.connections.entries()]
-      .filter(([_, state]) => state === "active")
-      .map(([id]) => id);
-  }
-}
-
 export const DEFAULT_CONFIG: ServerConfig = {
   host: "0.0.0.0",
   port: 8080,
 };
 
-function shutdown(pool: ConnectionPool): void {
+function shutdown(pool: ConnectionPools): void {
   const active = pool.getActive();
   active.forEach((id) => pool.remove(id));
 }

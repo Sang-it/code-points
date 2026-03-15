@@ -5,17 +5,16 @@ const MAX_ITEMS: usize = 1000;
 
 static APP_NAME: &str = "code-points-example";
 
-#[derive(Debug, Clone)]
-pub struct Item {
-    id: u64,
-    name: String,
-    tags: Vec<String>,
-}
-
 pub enum Status {
     Active,
     Inactive,
     Archived,
+}
+
+pub struct Item {
+    id: u64,
+    name: String,
+    tags: Vec<String>,
 }
 
 pub trait Searchable {

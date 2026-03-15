@@ -145,4 +145,41 @@ function M.get_arity(node, _bufnr)
   return nil
 end
 
+--- Check if a node contains child declarations that can be nested.
+--- @param node any treesitter node
+--- @return boolean
+function M.is_nestable(node)
+  local t = node:type()
+  return t == "impl_item" or t == "trait_item"
+end
+
+--- Get the body node to iterate for child declarations.
+--- @param node any treesitter node
+--- @return any|nil body node
+function M.get_body_node(node)
+  local t = node:type()
+  if t == "impl_item" or t == "trait_item" then
+    for child in node:iter_children() do
+      if child:type() == "declaration_list" then
+        return child
+      end
+    end
+  end
+  return nil
+end
+
+-- Child node types inside impl/trait blocks
+local CHILD_TYPES = {
+  function_item = true,
+  const_item = true,
+  type_item = true,
+}
+
+--- Check if a child node inside a nestable parent is a declaration.
+--- @param node any treesitter node
+--- @return boolean
+function M.is_child_declaration(node)
+  return CHILD_TYPES[node:type()] or false
+end
+
 return M
