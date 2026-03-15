@@ -275,6 +275,14 @@ function M.open(source_bufnr, entries, lang)
 
       -- Format via LSP if available, then close the window
       local function finish()
+        -- Close the float first so the source buffer becomes current
+        if vim.api.nvim_win_is_valid(win) then
+          vim.api.nvim_win_close(win, true)
+        end
+
+        -- Switch to the source buffer and format
+        vim.api.nvim_set_current_buf(source_bufnr)
+
         local clients = vim.lsp.get_clients({ bufnr = source_bufnr })
         local has_formatter = false
         for _, client in ipairs(clients) do
@@ -284,10 +292,7 @@ function M.open(source_bufnr, entries, lang)
           end
         end
         if has_formatter then
-          vim.lsp.buf.format({ async = false, bufnr = source_bufnr })
-        end
-        if vim.api.nvim_win_is_valid(win) then
-          vim.api.nvim_win_close(win, true)
+          vim.lsp.buf.format({ async = false, bufnr = source_bufnr, timeout_ms = 5000 })
         end
       end
 
