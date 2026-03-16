@@ -124,15 +124,15 @@ local function apply_highlights(buf, highlights, sorted_prefixes)
   end
 end
 
---- Create a centered floating window.
+--- Create a floating window positioned on the right side with padding.
 --- @param buf number buffer handle
 --- @param title string window title
 --- @return number win window handle
-local function open_centered_float(buf, title)
-  local width = math.floor(vim.o.columns * 0.4)
-  local height = math.floor(vim.o.lines * 0.4)
-  local row = math.floor((vim.o.lines - height) / 2)
-  local col = math.floor((vim.o.columns - width) / 2)
+local function open_sidebar(buf, title)
+  local width = math.floor(vim.o.columns * 0.3)
+  local height = vim.o.lines - 6 -- leave padding top and bottom
+  local row = 2
+  local col = vim.o.columns - width - 2 -- padding from right edge
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
@@ -141,7 +141,7 @@ local function open_centered_float(buf, title)
     row = row,
     col = col,
     style = "minimal",
-    border = "rounded",
+    border = "single",
     title = " " .. title .. " ",
     title_pos = "center",
   })
@@ -153,11 +153,21 @@ local function open_centered_float(buf, title)
   return win
 end
 
+-- Track the current code points window
+local active_win = nil
+local active_buf = nil
+
 --- Open the code points floating window.
 --- @param source_bufnr number the source buffer to operate on
 --- @param entries table[] list of code point entries from treesitter module
 --- @param lang CodePointsLang the language module
 function M.open(source_bufnr, entries, lang)
+  -- If a code points window is already open, focus it
+  if active_win and vim.api.nvim_win_is_valid(active_win) then
+    vim.api.nvim_set_current_win(active_win)
+    return
+  end
+
   -- Build highlight data from the language module
   local highlights = lang.highlights or {}
   local sorted_prefixes = build_sorted_prefixes(highlights)
@@ -178,8 +188,8 @@ function M.open(source_bufnr, entries, lang)
   -- Give it a name so :w doesn't complain about no file name
   vim.api.nvim_buf_set_name(buf, "code-points://reorder")
 
-  -- Open the float
-  local win = open_centered_float(buf, "Code Points")
+  -- Open the sidebar
+  local win = open_sidebar(buf, "Code Points")
 
   -- Apply initial syntax highlighting
   apply_highlights(buf, highlights, sorted_prefixes)
@@ -197,7 +207,7 @@ function M.open(source_bufnr, entries, lang)
         table.insert(virt_lines, { { "", "Comment" } })
       end
     end
-    table.insert(virt_lines, { { ":w=submit  q=cancel", "Comment" } })
+    table.insert(virt_lines, { { ":w=submit  q=close  gd=peek", "Comment" } })
     vim.api.nvim_buf_set_extmark(buf, footer_ns, line_count - 1, 0, {
       virt_lines = virt_lines,
       virt_lines_above = false,
@@ -242,21 +252,56 @@ function M.open(source_bufnr, entries, lang)
     end
   end, { buffer = buf, noremap = true, silent = true, desc = "Close Code Points window" })
 
-  -- Map <CR> to jump to the code point under cursor
+  -- Map <CR> to jump to the code point under cursor (without closing the window)
   vim.keymap.set("n", "<CR>", function()
     local cursor_line = vim.api.nvim_win_get_cursor(win)[1] -- 1-indexed
     local map_entry = flat_map[cursor_line]
     if not map_entry then return end
 
-    -- Close the float first
-    if vim.api.nvim_win_is_valid(win) then
-      vim.api.nvim_win_close(win, true)
+    local target_row = map_entry.entry.start_row + 1 -- 1-indexed
+
+    -- Find the window displaying the source buffer
+    local source_win = nil
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if w ~= win and vim.api.nvim_win_get_buf(w) == source_bufnr then
+        source_win = w
+        break
+      end
     end
 
-    -- Jump to the code point in the source buffer
-    vim.api.nvim_set_current_buf(source_bufnr)
-    vim.api.nvim_win_set_cursor(0, { map_entry.entry.start_row + 1, 0 })
+    if source_win then
+      -- Switch focus to source window and jump to the code point
+      vim.api.nvim_set_current_win(source_win)
+      vim.api.nvim_win_set_cursor(source_win, { target_row, 0 })
+      vim.fn.winrestview({ topline = target_row })
+    end
   end, { buffer = buf, noremap = true, silent = true, desc = "Jump to code point" })
+
+  -- Map gd to peek at the code point (scroll source buffer without leaving)
+  vim.keymap.set("n", "gd", function()
+    local cursor_line = vim.api.nvim_win_get_cursor(win)[1] -- 1-indexed
+    local map_entry = flat_map[cursor_line]
+    if not map_entry then return end
+
+    local target_row = map_entry.entry.start_row + 1 -- 1-indexed
+
+    -- Find the window displaying the source buffer
+    local source_win = nil
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if w ~= win and vim.api.nvim_win_get_buf(w) == source_bufnr then
+        source_win = w
+        break
+      end
+    end
+
+    if source_win then
+      -- Move the cursor and scroll so the code point is at the top of the source window
+      vim.api.nvim_win_call(source_win, function()
+        vim.api.nvim_win_set_cursor(source_win, { target_row, 0 })
+        vim.cmd("normal! zz")
+      end)
+    end
+  end, { buffer = buf, noremap = true, silent = true, desc = "Peek at code point (gd)" })
 
   -- Handle :w — intercept the save and apply reordering + renames
   vim.api.nvim_create_autocmd("BufWriteCmd", {
@@ -281,26 +326,49 @@ function M.open(source_bufnr, entries, lang)
 
       vim.api.nvim_set_option_value("modified", false, { buf = buf })
 
-      -- Format via LSP if available, then close the window
-      local function finish()
-        -- Close the float first so the source buffer becomes current
-        if vim.api.nvim_win_is_valid(win) then
-          vim.api.nvim_win_close(win, true)
-        end
-
-        -- Switch to the source buffer and format
-        vim.api.nvim_set_current_buf(source_bufnr)
-
-        local clients = vim.lsp.get_clients({ bufnr = source_bufnr })
-        local has_formatter = false
-        for _, client in ipairs(clients) do
-          if client.server_capabilities.documentFormattingProvider then
-            has_formatter = true
+      -- Format via LSP if available (without closing the window)
+      local function format_source()
+        -- Find the source window to run format in its context
+        local source_win = nil
+        for _, w in ipairs(vim.api.nvim_list_wins()) do
+          if w ~= win and vim.api.nvim_win_get_buf(w) == source_bufnr then
+            source_win = w
             break
           end
         end
-        if has_formatter then
-          vim.lsp.buf.format({ async = false, bufnr = source_bufnr, timeout_ms = 5000 })
+
+        if source_win then
+          vim.api.nvim_win_call(source_win, function()
+            local clients = vim.lsp.get_clients({ bufnr = source_bufnr })
+            local has_formatter = false
+            for _, client in ipairs(clients) do
+              if client.server_capabilities.documentFormattingProvider then
+                has_formatter = true
+                break
+              end
+            end
+            if has_formatter then
+              vim.lsp.buf.format({ async = false, bufnr = source_bufnr, timeout_ms = 5000 })
+            end
+          end)
+        end
+      end
+
+      -- Refresh the code points list after changes are applied
+      local function refresh()
+        format_source()
+
+        -- Re-extract code points from the updated source buffer
+        local treesitter = require("code-points.treesitter")
+        local new_entries, _ = treesitter.get_code_points(source_bufnr)
+        if #new_entries > 0 then
+          entries = new_entries
+          local new_display_lines, new_flat_map = build_display_lines(entries)
+          flat_map = new_flat_map
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_display_lines)
+          vim.api.nvim_set_option_value("modified", false, { buf = buf })
+          apply_highlights(buf, highlights, sorted_prefixes)
+          update_footer()
         end
       end
 
@@ -312,27 +380,33 @@ function M.open(source_bufnr, entries, lang)
               .. #renames .. " rename(s) skipped.",
             vim.log.levels.WARN
           )
-          finish()
+          refresh()
           return
         end
 
         vim.notify("CodePoints: reorder applied, processing " .. #renames .. " rename(s)...", vim.log.levels.INFO)
         rename.apply_renames(source_bufnr, renames, function()
           vim.notify("CodePoints: all renames complete", vim.log.levels.INFO)
-          finish()
+          refresh()
         end)
       else
         vim.notify("CodePoints: reorder applied", vim.log.levels.INFO)
-        finish()
+        refresh()
       end
     end,
   })
+
+  -- Track the active window/buffer
+  active_win = win
+  active_buf = buf
 
   -- Cleanup buffer when window is closed
   vim.api.nvim_create_autocmd("WinClosed", {
     pattern = tostring(win),
     once = true,
     callback = function()
+      active_win = nil
+      active_buf = nil
       if vim.api.nvim_buf_is_valid(buf) then
         vim.api.nvim_buf_delete(buf, { force = true })
       end
