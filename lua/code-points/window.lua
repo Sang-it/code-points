@@ -143,13 +143,13 @@ end
 
 --- Create a floating window positioned on the right side with padding.
 --- @param buf number buffer handle
---- @param title string window title
+--- @param win_config table window configuration from plugin config
 --- @return number win window handle
-local function open_sidebar(buf, title)
-  local width = math.floor(vim.o.columns * 0.3)
-  local height = vim.o.lines - 6 -- leave padding top and bottom
-  local row = 2
-  local col = vim.o.columns - width - 2 -- padding from right edge
+local function open_sidebar(buf, win_config)
+  local width = math.floor(vim.o.columns * win_config.width)
+  local height = math.floor(vim.o.lines * win_config.height)
+  local row = win_config.row
+  local col = vim.o.columns - width - win_config.col
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
@@ -158,8 +158,8 @@ local function open_sidebar(buf, title)
     row = row,
     col = col,
     style = "minimal",
-    border = "single",
-    title = " " .. title .. " ",
+    border = win_config.border,
+    title = " " .. win_config.title .. " ",
     title_pos = "center",
   })
 
@@ -167,7 +167,7 @@ local function open_sidebar(buf, title)
   vim.api.nvim_set_option_value("number", true, { win = win })
   vim.api.nvim_set_option_value("relativenumber", true, { win = win })
   vim.api.nvim_set_option_value("winhighlight", "Normal:Normal,FloatBorder:Normal,FloatTitle:Normal", { win = win })
-  vim.api.nvim_set_option_value("winblend", 15, { win = win })
+  vim.api.nvim_set_option_value("winblend", win_config.winblend, { win = win })
 
   return win
 end
@@ -180,7 +180,8 @@ local active_buf = nil
 --- @param source_bufnr number the source buffer to operate on
 --- @param entries table[] list of code point entries from treesitter module
 --- @param lang CodePointsLang the language module
-function M.open(source_bufnr, entries, lang)
+--- @param config table plugin configuration
+function M.open(source_bufnr, entries, lang, config)
   -- If a code points window is already open, focus it
   if active_win and vim.api.nvim_win_is_valid(active_win) then
     vim.api.nvim_set_current_win(active_win)
@@ -208,15 +209,18 @@ function M.open(source_bufnr, entries, lang)
   vim.api.nvim_buf_set_name(buf, "code-points://reorder")
 
   -- Open the sidebar
-  local win = open_sidebar(buf, "Code Points")
+  local win_config = config and config.window or {}
+  local win = open_sidebar(buf, win_config)
 
   -- Apply initial syntax highlighting
   apply_highlights(buf, highlights, sorted_prefixes)
 
-  -- Add help footer at the bottom of the window
+  -- Add help footer at the bottom of the window (if enabled)
+  local show_footer = win_config.footer ~= false
   local footer_ns = vim.api.nvim_create_namespace("code_points_footer")
   local function update_footer()
     vim.api.nvim_buf_clear_namespace(buf, footer_ns, 0, -1)
+    if not show_footer then return end
     local line_count = vim.api.nvim_buf_line_count(buf)
     local win_height = vim.api.nvim_win_get_height(win)
     local pad = win_height - line_count - 1

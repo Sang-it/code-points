@@ -1,11 +1,24 @@
 local M = {}
 
-M.config = {}
+local DEFAULT_CONFIG = {
+  window = {
+    title = "Code Points",
+    width = 0.3,
+    height = 0.85,
+    row = 2,
+    col = 2,
+    border = "single",
+    winblend = 15,
+    footer = true,
+  },
+}
+
+M.config = vim.deepcopy(DEFAULT_CONFIG)
 
 --- Setup the plugin with user configuration.
 --- @param user_config? table
 function M.setup(user_config)
-  M.config = vim.tbl_deep_extend("force", M.config, user_config or {})
+  M.config = vim.tbl_deep_extend("force", vim.deepcopy(DEFAULT_CONFIG), user_config or {})
 end
 
 --- Open the code points floating window for the current buffer.
@@ -25,7 +38,7 @@ function M.run()
   end
 
   local window = require("code-points.window")
-  window.open(source_bufnr, entries, lang)
+  window.open(source_bufnr, entries, lang, M.config)
 end
 
 return M
