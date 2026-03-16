@@ -337,10 +337,23 @@ function M.open(source_bufnr, entries, lang)
     end
 
     if source_win then
-      vim.api.nvim_win_call(source_win, function()
-        vim.api.nvim_win_set_cursor(source_win, { target_row, 0 })
-        vim.lsp.buf.hover()
-      end)
+      -- Focus source window, position cursor on the symbol name, trigger hover
+      vim.api.nvim_set_current_win(source_win)
+
+      -- Find the column of the symbol name on the declaration line
+      local name = map_entry.entry.name
+      local decl_line = vim.api.nvim_buf_get_lines(source_bufnr, target_row - 1, target_row, false)[1] or ""
+      local col = 0
+      if name and #name > 0 then
+        local pattern = "%f[%w_]" .. vim.pesc(name) .. "%f[^%w_]"
+        local found = decl_line:find(pattern)
+        if found then
+          col = found - 1 -- 0-indexed
+        end
+      end
+
+      vim.api.nvim_win_set_cursor(source_win, { target_row, col })
+      vim.lsp.buf.hover()
     end
   end, { buffer = buf, noremap = true, silent = true, desc = "LSP hover for code point" })
 
