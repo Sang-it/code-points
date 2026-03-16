@@ -264,12 +264,16 @@ function M.open(source_bufnr, entries, lang)
     end,
   })
 
-  -- Map 'q' to close the window (normal mode)
-  vim.keymap.set("n", "q", function()
+  -- Close window helper
+  local function close()
     if vim.api.nvim_win_is_valid(win) then
       vim.api.nvim_win_close(win, true)
     end
-  end, { buffer = buf, noremap = true, silent = true, desc = "Close Code Points window" })
+  end
+
+  -- Map 'q' and <C-c> to close the window (normal mode)
+  vim.keymap.set("n", "q", close, { buffer = buf, noremap = true, silent = true, desc = "Close Code Points window" })
+  vim.keymap.set("n", "<C-c>", close, { buffer = buf, noremap = true, silent = true, desc = "Close Code Points window" })
 
   -- Map <CR> to jump to the code point under cursor (without closing the window)
   vim.keymap.set("n", "<CR>", function()
