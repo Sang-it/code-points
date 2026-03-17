@@ -106,8 +106,10 @@ require("fluoride").setup({
     peek = "gd",              -- peek at code point (center + flash)
     hover = "K",              -- LSP hover on code point
     toggle_children = "<Tab>", -- toggle nested members on/off
+    yank = "gy",              -- peek + copy code block to clipboard
   },
   show_children = true,       -- show nested members on open (default: true)
+  yank_comments = true,       -- include attached comments in yank (default: true)
   confirm_delete = true,      -- prompt before deleting code points (false to skip)
   highlight = {
     peek_duration = 200,      -- ms for gd peek flash
@@ -142,6 +144,7 @@ Inside the Fluoride window:
 | `yy` + `p` | Duplicate a code point (auto-suffixed name) |
 | `dd` | Delete a code point (confirmed on `:w`) |
 | `<Tab>` | Toggle nested members (methods, fields, variants) on/off |
+| `gy` | Peek + copy code block to clipboard (vim register and system clipboard) |
 
 ## Workflow
 
