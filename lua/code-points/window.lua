@@ -168,7 +168,7 @@ local function open_sidebar(buf, win_config)
   col = math.max(col, 0)
   row = math.max(row, 0)
 
-  local win = vim.api.nvim_open_win(buf, true, {
+  local win_opts = {
     relative = "editor",
     width = width,
     height = height,
@@ -176,9 +176,14 @@ local function open_sidebar(buf, win_config)
     col = col,
     style = "minimal",
     border = win_config.border,
-    title = " " .. win_config.title .. " ",
-    title_pos = "center",
-  })
+  }
+
+  if win_config.title ~= false then
+    win_opts.title = " " .. (win_config.title or "Code Points") .. " "
+    win_opts.title_pos = "center"
+  end
+
+  local win = vim.api.nvim_open_win(buf, true, win_opts)
 
   vim.api.nvim_set_option_value("cursorline", true, { win = win })
   vim.api.nvim_set_option_value("number", true, { win = win })
