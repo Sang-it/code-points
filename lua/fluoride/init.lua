@@ -20,6 +20,10 @@ local DEFAULT_CONFIG = {
     hover = "K",
   },
   confirm_delete = true,
+  highlight = {
+    peek_duration = 200,    -- ms for gd peek flash
+    rename_duration = 130,  -- ms for rename flash per entry
+  },
 }
 
 M.config = vim.deepcopy(DEFAULT_CONFIG)

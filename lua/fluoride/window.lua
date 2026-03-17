@@ -234,6 +234,9 @@ function M.open(source_bufnr, entries, lang, config)
   -- Open the sidebar
   local win_config = config and config.window or {}
   local km = config and config.keymaps or {}
+  local hl_config = config and config.highlight or {}
+  local peek_duration = hl_config.peek_duration or 200
+  local rename_duration = hl_config.rename_duration or 130
   local win = open_sidebar(buf, win_config)
 
   -- Apply initial syntax highlighting
@@ -376,7 +379,7 @@ function M.open(source_bufnr, entries, lang, config)
         if vim.api.nvim_buf_is_valid(source_bufnr) then
           vim.api.nvim_buf_clear_namespace(source_bufnr, peek_ns, 0, -1)
         end
-      end, 200)
+      end, peek_duration)
     end
   end, "Peek at code point")
 
@@ -533,7 +536,7 @@ function M.open(source_bufnr, entries, lang, config)
                 if vim.api.nvim_buf_is_valid(source_bufnr) then
                   vim.api.nvim_buf_clear_namespace(source_bufnr, flash_ns, 0, -1)
                 end
-              end, 130)
+              end, rename_duration)
               return
             end
 
@@ -558,7 +561,7 @@ function M.open(source_bufnr, entries, lang, config)
             end
 
             index = index + 1
-            vim.defer_fn(flash_next, 130)
+            vim.defer_fn(flash_next, rename_duration)
           end
 
           flash_next()
