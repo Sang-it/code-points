@@ -380,6 +380,54 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
     end
   end
 
+  -- Re-attribute misplaced children to their correct parents.
+  -- When a top-level entry is moved between a parent and its children,
+  -- the positional grouping assigns children to the wrong parent.
+  -- Fix this by checking each child against the original parent membership.
+  local original_child_parent = {}
+  for _, entry in ipairs(original_entries) do
+    if entry.children then
+      for _, child in ipairs(entry.children) do
+        original_child_parent[child.name] = entry.name
+      end
+    end
+  end
+
+  -- Build a name → group index map for quick lookup
+  local group_by_name = {}
+  for idx, group in ipairs(parsed_groups) do
+    group_by_name[group.name] = idx
+  end
+
+  -- Scan each group's children and re-attribute misplaced ones
+  for i = #parsed_groups, 1, -1 do
+    local group = parsed_groups[i]
+    local correct_children = {}
+    local misplaced = {}
+
+    for _, child in ipairs(group.children) do
+      local orig_parent = original_child_parent[child.name]
+      if orig_parent == nil or orig_parent == group.name then
+        -- Correct parent or new child (duplicate) — keep it
+        table.insert(correct_children, child)
+      else
+        -- Misplaced — collect for re-attribution
+        table.insert(misplaced, child)
+      end
+    end
+
+    group.children = correct_children
+
+    -- Re-attach misplaced children to their correct parent group
+    for _, child in ipairs(misplaced) do
+      local orig_parent = original_child_parent[child.name]
+      local target_idx = group_by_name[orig_parent]
+      if target_idx then
+        table.insert(parsed_groups[target_idx].children, child)
+      end
+    end
+  end
+
   -- Match top-level parents (only match against original entries)
   local parent_parsed = {}
   for _, g in ipairs(parsed_groups) do
