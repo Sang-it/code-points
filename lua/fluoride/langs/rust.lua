@@ -13,6 +13,7 @@ local DECLARATION_TYPES = {
   function_item = "fn",
   struct_item = "struct",
   enum_item = "enum",
+  union_item = "union",
   impl_item = "impl",
   trait_item = "trait",
   type_item = "type",
@@ -20,6 +21,9 @@ local DECLARATION_TYPES = {
   static_item = "static",
   mod_item = "mod",
   macro_definition = "macro",
+  macro_invocation = "macro",
+  foreign_mod_item = "extern",
+  expression_statement = "expression",
 }
 
 local SKIP_TYPES = {
@@ -29,6 +33,7 @@ local SKIP_TYPES = {
   attribute_item = true,
   inner_attribute_item = true,
   extern_crate_declaration = true,
+  empty_statement = true,
 }
 
 M.highlights = {
@@ -50,6 +55,10 @@ M.highlights = {
   ["mod"]     = { prefix = "Keyword",  name = "Identifier" },
   ["pub mod"] = { prefix = "Keyword",  name = "Identifier" },
   ["macro"]   = { prefix = "Keyword",  name = "Function" },
+  ["union"]   = { prefix = "Type",     name = "Type" },
+  ["pub union"] = { prefix = "Type",   name = "Type" },
+  ["extern"]  = { prefix = "Keyword",  name = "Identifier" },
+  ["expression"] = { prefix = "Keyword", name = "Identifier" },
   ["field"]   = { prefix = "Keyword",  name = "Identifier" },
   ["pub field"] = { prefix = "Keyword", name = "Identifier" },
   ["variant"] = { prefix = "Type",     name = "Identifier" },
@@ -80,6 +89,7 @@ function M.get_name(node, bufnr)
   if node_type == "function_item"
     or node_type == "struct_item"
     or node_type == "enum_item"
+    or node_type == "union_item"
     or node_type == "trait_item"
     or node_type == "type_item"
     or node_type == "const_item"
@@ -109,6 +119,38 @@ function M.get_name(node, bufnr)
     if name_node then
       return vim.treesitter.get_node_text(name_node, bufnr)
     end
+  end
+
+  -- macro_invocation: e.g., lazy_static! { ... }, vec![1, 2, 3]
+  if node_type == "macro_invocation" then
+    local macro_node = node:field("macro")[1]
+    if macro_node then
+      return vim.treesitter.get_node_text(macro_node, bufnr) .. "!"
+    end
+  end
+
+  -- foreign_mod_item: extern "C" { ... }
+  if node_type == "foreign_mod_item" then
+    local text = vim.treesitter.get_node_text(node, bufnr)
+    local first_line = text:match("^([^\n]*)")
+    first_line = first_line:gsub("[{]%s*$", "")
+    first_line = first_line:gsub("^extern%s*", "")
+    first_line = vim.trim(first_line)
+    if #first_line > 40 then
+      first_line = first_line:sub(1, 37) .. "..."
+    end
+    if first_line == "" then first_line = "<extern>" end
+    return first_line
+  end
+
+  -- expression_statement: top-level expression
+  if node_type == "expression_statement" then
+    local text = vim.treesitter.get_node_text(node, bufnr)
+    local first_line = text:match("^([^\n]*)")
+    if #first_line > 40 then
+      first_line = first_line:sub(1, 37) .. "..."
+    end
+    return first_line
   end
 
   -- macro_definition: macro_rules! name { ... }
@@ -175,6 +217,7 @@ end
 function M.is_nestable(node)
   local t = node:type()
   return t == "impl_item" or t == "trait_item" or t == "struct_item" or t == "enum_item"
+    or t == "union_item" or t == "mod_item"
 end
 
 --- Get the body node to iterate for child declarations.
@@ -189,7 +232,7 @@ function M.get_body_node(node)
       end
     end
   end
-  if t == "struct_item" then
+  if t == "struct_item" or t == "union_item" then
     for child in node:iter_children() do
       if child:type() == "field_declaration_list" then
         return child
@@ -203,16 +246,33 @@ function M.get_body_node(node)
       end
     end
   end
+  if t == "mod_item" then
+    for child in node:iter_children() do
+      if child:type() == "declaration_list" then
+        return child
+      end
+    end
+  end
   return nil
 end
 
--- Child node types inside impl/trait/struct/enum blocks
+-- Child node types inside impl/trait/struct/enum/mod blocks
 local CHILD_TYPES = {
   function_item = true,
   const_item = true,
   type_item = true,
   field_declaration = true,
   enum_variant = true,
+  -- mod children (full declarations)
+  struct_item = true,
+  enum_item = true,
+  union_item = true,
+  impl_item = true,
+  trait_item = true,
+  static_item = true,
+  mod_item = true,
+  macro_definition = true,
+  macro_invocation = true,
 }
 
 --- Check if a child node inside a nestable parent is a declaration.
