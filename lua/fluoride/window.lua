@@ -268,13 +268,6 @@ function M.open(source_bufnr, entries, lang, config)
     end
     local parts = { ":w=submit" }
     if km.close ~= false then table.insert(parts, (km.close or "q") .. "=close") end
-    if km.peek ~= false then table.insert(parts, (km.peek or "gd") .. "=peek") end
-    if km.hover ~= false then table.insert(parts, (km.hover or "K") .. "=hover") end
-    if km.yank ~= false then table.insert(parts, (km.yank or "gy") .. "=yank") end
-    if km.toggle_children ~= false then
-      local state = show_children and "on" or "off"
-      table.insert(parts, (km.toggle_children or "<Tab>") .. "=children:" .. state)
-    end
     table.insert(virt_lines, { { table.concat(parts, " "), "Comment" } })
     vim.api.nvim_buf_set_extmark(buf, footer_ns, line_count - 1, 0, {
       virt_lines = virt_lines,
