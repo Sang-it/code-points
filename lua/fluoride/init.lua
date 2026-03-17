@@ -25,8 +25,10 @@ local DEFAULT_CONFIG = {
     peek = "gd",
     hover = "K",
     toggle_children = "<Tab>",
+    yank = "gy",
   },
   show_children = true,
+  yank_comments = true,
   confirm_delete = true,
   highlight = {
     peek_duration = 200,    -- ms for gd peek flash

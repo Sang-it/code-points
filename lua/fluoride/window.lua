@@ -270,6 +270,7 @@ function M.open(source_bufnr, entries, lang, config)
     if km.close ~= false then table.insert(parts, (km.close or "q") .. "=close") end
     if km.peek ~= false then table.insert(parts, (km.peek or "gd") .. "=peek") end
     if km.hover ~= false then table.insert(parts, (km.hover or "K") .. "=hover") end
+    if km.yank ~= false then table.insert(parts, (km.yank or "gy") .. "=yank") end
     if km.toggle_children ~= false then
       local state = show_children and "on" or "off"
       table.insert(parts, (km.toggle_children or "<Tab>") .. "=children:" .. state)
@@ -433,6 +434,46 @@ function M.open(source_bufnr, entries, lang, config)
     apply_highlights(buf, highlights, sorted_prefixes)
     update_footer()
   end, "Toggle child declarations")
+
+  -- Peek + copy code block
+  local yank_comments = config and config.yank_comments ~= false
+  map(km.yank or "gy", function()
+    local cursor_line = vim.api.nvim_win_get_cursor(win)[1]
+    local map_entry = flat_map[cursor_line]
+    if not map_entry then return end
+
+    local source_win = find_source_win()
+    if source_win then
+      local target_row = map_entry.entry.start_row + 1
+
+      -- Center + flash (same as gd)
+      vim.api.nvim_win_call(source_win, function()
+        vim.api.nvim_win_set_cursor(source_win, { target_row, 0 })
+        vim.cmd("normal! zz")
+      end)
+
+      vim.api.nvim_buf_clear_namespace(source_bufnr, peek_ns, 0, -1)
+      for row = map_entry.entry.start_row, map_entry.entry.end_row do
+        pcall(vim.api.nvim_buf_add_highlight, source_bufnr, peek_ns, "Visual", row, 0, -1)
+      end
+      vim.defer_fn(function()
+        if vim.api.nvim_buf_is_valid(source_bufnr) then
+          vim.api.nvim_buf_clear_namespace(source_bufnr, peek_ns, 0, -1)
+        end
+      end, peek_duration)
+
+      -- Copy the code block
+      local copy_start = map_entry.entry.start_row
+      if not yank_comments then
+        copy_start = map_entry.entry.decl_start_row
+      end
+      local lines = vim.api.nvim_buf_get_lines(source_bufnr, copy_start, map_entry.entry.end_row + 1, false)
+      local text = table.concat(lines, "\n")
+      vim.fn.setreg('"', text, "l")
+      vim.fn.setreg("+", text, "l")
+      vim.notify("Fluoride: copied " .. #lines .. " lines", vim.log.levels.INFO)
+    end
+  end, "Peek and copy code block")
 
   -- Handle :w — intercept the save and apply reordering + renames
   vim.api.nvim_create_autocmd("BufWriteCmd", {
