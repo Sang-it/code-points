@@ -1,10 +1,9 @@
 local M = {}
 
-M.filetypes = { "c", "cpp" }
+M.filetypes = { "c" }
 
 M.parsers = {
   c = "c",
-  cpp = "cpp",
 }
 
 M.comment_types = { comment = true }
