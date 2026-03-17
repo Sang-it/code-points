@@ -278,14 +278,34 @@ function M.get_arity(node, _bufnr)
 end
 
 function M.is_nestable(node)
-  return node:type() == "class_declaration"
+  local t = node:type()
+  if t == "class_declaration" then
+    return true
+  end
+  if t == "export_statement" then
+    for child in node:iter_children() do
+      if M.is_nestable(child) then
+        return true
+      end
+    end
+  end
+  return false
 end
 
 function M.get_body_node(node)
-  if node:type() == "class_declaration" then
+  local t = node:type()
+  if t == "class_declaration" then
     for child in node:iter_children() do
       if child:type() == "class_body" then
         return child
+      end
+    end
+  end
+  if t == "export_statement" then
+    for child in node:iter_children() do
+      local body = M.get_body_node(child)
+      if body then
+        return body
       end
     end
   end

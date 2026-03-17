@@ -474,11 +474,22 @@ end
 --- @return boolean
 function M.is_nestable(node)
   local t = node:type()
-  return t == "class_declaration"
+  if t == "class_declaration"
     or t == "abstract_class_declaration"
     or t == "interface_declaration"
     or t == "enum_declaration"
-    or t == "module"
+    or t == "module" then
+    return true
+  end
+  -- Handle export_statement wrapping a nestable declaration
+  if t == "export_statement" or t == "ambient_declaration" then
+    for child in node:iter_children() do
+      if M.is_nestable(child) then
+        return true
+      end
+    end
+  end
+  return false
 end
 
 --- Get the body node to iterate for child declarations.
@@ -511,6 +522,15 @@ function M.get_body_node(node)
     for child in node:iter_children() do
       if child:type() == "statement_block" then
         return child
+      end
+    end
+  end
+  -- Handle export_statement / ambient_declaration wrapping a nestable declaration
+  if t == "export_statement" or t == "ambient_declaration" then
+    for child in node:iter_children() do
+      local body = M.get_body_node(child)
+      if body then
+        return body
       end
     end
   end
