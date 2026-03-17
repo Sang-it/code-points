@@ -105,7 +105,9 @@ require("fluoride").setup({
     jump = "<CR>",            -- jump to code point (focus moves to source)
     peek = "gd",              -- peek at code point (center + flash)
     hover = "K",              -- LSP hover on code point
+    toggle_children = "<Tab>", -- toggle nested members on/off
   },
+  show_children = true,       -- show nested members on open (default: true)
   confirm_delete = true,      -- prompt before deleting code points (false to skip)
   highlight = {
     peek_duration = 200,      -- ms for gd peek flash
@@ -139,6 +141,7 @@ Inside the Fluoride window:
 | `dd` + `p` | Reorder a code point |
 | `yy` + `p` | Duplicate a code point (auto-suffixed name) |
 | `dd` | Delete a code point (confirmed on `:w`) |
+| `<Tab>` | Toggle nested members (methods, fields, variants) on/off |
 
 ## Workflow
 
