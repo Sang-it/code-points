@@ -8,6 +8,7 @@ local lang_registry = {}
 local FT_ALIASES = {
   typescriptreact = "typescript",
   javascriptreact = "javascript",
+  cpp = "c",
 }
 
 --- Register a language module for all its filetypes.
