@@ -539,6 +539,29 @@ function M.open(source_bufnr, entries, lang, config)
     end,
   })
 
+  -- Auto-reload code points when the source file is saved
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    buffer = source_bufnr,
+    callback = function()
+      if not vim.api.nvim_win_is_valid(win) then return end
+      if not vim.api.nvim_buf_is_valid(buf) then return end
+
+      local ok, _ = pcall(function()
+        local treesitter = require("fluoride.treesitter")
+        local new_entries, _ = treesitter.get_code_points(source_bufnr)
+        if #new_entries > 0 then
+          entries = new_entries
+          local new_display_lines, new_flat_map = build_display_lines(entries)
+          flat_map = new_flat_map
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, new_display_lines)
+          vim.api.nvim_set_option_value("modified", false, { buf = buf })
+          apply_highlights(buf, highlights, sorted_prefixes)
+          update_footer()
+        end
+      end)
+    end,
+  })
+
   -- Cleanup buffer when window is closed
   vim.api.nvim_create_autocmd("WinClosed", {
     pattern = tostring(win),
