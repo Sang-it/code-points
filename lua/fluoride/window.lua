@@ -453,7 +453,7 @@ function M.open(source_bufnr, entries, lang, config)
 
           -- Re-extract declarations from the updated source buffer
           local treesitter = require("fluoride.treesitter")
-          local new_entries, _ = treesitter.get_fluoride(source_bufnr)
+          local new_entries, _ = treesitter.get_code_points(source_bufnr)
           if #new_entries > 0 then
             entries = new_entries
             local new_display_lines, new_flat_map = build_display_lines(entries)
