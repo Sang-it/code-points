@@ -312,9 +312,10 @@ end
 --- @return boolean ok
 --- @return string|nil error
 --- @return table[] renames list of { old_name: string, new_name: string }
-function M.apply(source_bufnr, original_entries, new_display_lines, lang)
+--- @return table[]|nil deletions list of { name, display_type } if deletions detected but not allowed
+function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_deletions)
   if #new_display_lines == 0 then
-    return false, "no entries in the reorder list", {}
+    return false, "no entries in the reorder list", {}, nil
   end
 
   local type_prefixes = build_type_prefixes(lang)
@@ -338,12 +339,12 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
       local prefix, name = parse_display_content(content, type_prefixes)
 
       if not name then
-        return false, "could not parse line: " .. line, {}
+        return false, "could not parse line: " .. line, {}, nil
       end
 
       if is_child then
         if not current_parent then
-          return false, "child line without parent: " .. line, {}
+          return false, "child line without parent: " .. line, {}, nil
         end
         table.insert(current_parent.children, {
           prefix = prefix,
@@ -359,20 +360,50 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
     end
   end
 
-  -- Validate parent count (deletions not allowed, additions are OK)
-  if #parsed_groups < #original_entries then
-    return false, "entries were removed: expected at least " .. #original_entries .. " entries, got " .. #parsed_groups .. ". Do not remove entries.", {}
-  end
-
   -- Match top-level parents (only match against original entries)
   local parent_parsed = {}
   for _, g in ipairs(parsed_groups) do
     table.insert(parent_parsed, { prefix = g.prefix, name = g.name })
   end
 
+  -- Keep the full original list for preamble/postamble/gap calculations
+  local all_original_entries = original_entries
+
   local parent_matched, err = match_entries(parent_parsed, original_entries)
-  -- err from match_entries means some parsed items couldn't be matched —
-  -- this is expected when there are duplicates (more parsed than originals)
+
+  -- Detect deletions: original entries that no parsed group matched
+  if #parsed_groups < #original_entries then
+    local matched_originals = {}
+    for _, orig_idx in pairs(parent_matched) do
+      matched_originals[orig_idx] = true
+    end
+
+    local deletions = {}
+    for j, entry in ipairs(original_entries) do
+      if not matched_originals[j] then
+        table.insert(deletions, { name = entry.name, display_type = entry.display_type })
+      end
+    end
+
+    if #deletions > 0 and not allow_deletions then
+      -- Return deletions for the caller to confirm
+      return false, nil, {}, deletions
+    end
+
+    -- If deletions are allowed, filter original_entries to exclude deleted ones
+    if allow_deletions and #deletions > 0 then
+      local filtered_originals = {}
+      for j, entry in ipairs(original_entries) do
+        if matched_originals[j] then
+          table.insert(filtered_originals, entry)
+        end
+      end
+      original_entries = filtered_originals
+
+      -- Re-run matching with the filtered originals
+      parent_matched, err = match_entries(parent_parsed, original_entries)
+    end
+  end
 
   -- Detect top-level renames and build a set of existing names
   local renames = {}
@@ -440,7 +471,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
       end
 
       if not template then
-        return false, "could not find a template for duplicate entry: " .. (group.prefix or "") .. " " .. (group.name or ""), {}
+        return false, "could not find a template for duplicate entry: " .. (group.prefix or "") .. " " .. (group.name or ""), {}, nil
       end
 
       -- Generate a suffixed name
@@ -470,13 +501,13 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
 
       -- Validate child count
       if #group.children ~= #orig_children then
-        return false, "child count mismatch for '" .. orig_entry.name .. "': expected " .. #orig_children .. ", got " .. #group.children, {}
+        return false, "child count mismatch for '" .. orig_entry.name .. "': expected " .. #orig_children .. ", got " .. #group.children, {}, nil
       end
 
       -- Match children
       local child_matched, child_err = match_entries(group.children, orig_children)
       if child_err then
-        return false, "in '" .. orig_entry.name .. "': " .. child_err, {}
+        return false, "in '" .. orig_entry.name .. "': " .. child_err, {}, nil
       end
 
       -- Build ordered children and detect child renames
@@ -509,31 +540,55 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
     table.insert(ordered_entries, entry_copy)
   end
 
-  -- Collect preamble (everything before the first entry)
+  -- Collect preamble (everything before the first entry in the FULL original list)
   local total_lines = vim.api.nvim_buf_line_count(source_bufnr)
-  local first_entry_row = original_entries[1].start_row
+  local first_entry_row = all_original_entries[1].start_row
   local preamble = {}
   if first_entry_row > 0 then
     preamble = vim.api.nvim_buf_get_lines(source_bufnr, 0, first_entry_row, false)
   end
 
-  -- Collect gaps between consecutive entries (in original order).
-  -- Each gap is the content between entry[i].end_row and entry[i+1].start_row.
-  -- We attach the gap as trailing content to the entry that precedes it.
-  local trailing_gaps = {} -- trailing_gaps[orig_entry_index] = string[]
+  -- Build a set of deleted row ranges to exclude from gaps
+  local deleted_rows = {}
+  if all_original_entries ~= original_entries then
+    local surviving = {}
+    for _, entry in ipairs(original_entries) do
+      surviving[entry.start_row] = true
+    end
+    for _, entry in ipairs(all_original_entries) do
+      if not surviving[entry.start_row] then
+        for row = entry.start_row, entry.end_row do
+          deleted_rows[row] = true
+        end
+      end
+    end
+  end
+
+  -- Collect gaps between consecutive FILTERED entries (in original order).
+  -- Exclude lines that belong to deleted entries.
+  local trailing_gaps = {}
   for i = 1, #original_entries do
     trailing_gaps[i] = {}
     if i < #original_entries then
       local gap_start = original_entries[i].end_row + 1
       local gap_end = original_entries[i + 1].start_row - 1
       if gap_end >= gap_start then
-        trailing_gaps[i] = vim.api.nvim_buf_get_lines(source_bufnr, gap_start, gap_end + 1, false)
+        local gap_lines = vim.api.nvim_buf_get_lines(source_bufnr, gap_start, gap_end + 1, false)
+        -- Filter out lines belonging to deleted entries
+        local filtered_gap = {}
+        for row_offset, line in ipairs(gap_lines) do
+          local actual_row = gap_start + row_offset - 1
+          if not deleted_rows[actual_row] then
+            table.insert(filtered_gap, line)
+          end
+        end
+        trailing_gaps[i] = filtered_gap
       end
     end
   end
 
-  -- Collect postamble (everything after the last entry)
-  local last_entry_row = original_entries[#original_entries].end_row
+  -- Collect postamble (everything after the last entry in the FULL original list)
+  local last_entry_row = all_original_entries[#all_original_entries].end_row
   local postamble = {}
   if last_entry_row + 1 < total_lines then
     postamble = vim.api.nvim_buf_get_lines(source_bufnr, last_entry_row + 1, total_lines, false)
@@ -615,7 +670,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang)
   -- Apply changes using minimal diff
   diff.apply_minimal(source_bufnr, result)
 
-  return true, nil, renames
+  return true, nil, renames, nil
 end
 
 return M

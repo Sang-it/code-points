@@ -19,6 +19,7 @@ local DEFAULT_CONFIG = {
     peek = "gd",
     hover = "K",
   },
+  confirm_delete = true,
 }
 
 M.config = vim.deepcopy(DEFAULT_CONFIG)

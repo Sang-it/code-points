@@ -410,7 +410,35 @@ function M.open(source_bufnr, entries, lang, config)
           end
         end
 
-        local ok, err, renames = reorder.apply(source_bufnr, entries, filtered, lang)
+        local ok, err, renames, deletions = reorder.apply(source_bufnr, entries, filtered, lang)
+
+        -- Handle deletions: show confirmation if needed
+        if not ok and deletions and #deletions > 0 then
+          local confirm_delete = config and config.confirm_delete
+          if confirm_delete == nil then confirm_delete = true end
+
+          local names = {}
+          for _, d in ipairs(deletions) do
+            table.insert(names, d.display_type .. " " .. d.name)
+          end
+
+          if not confirm_delete then
+            -- Skip confirmation — re-apply with deletions allowed
+            ok, err, renames = reorder.apply(source_bufnr, entries, filtered, lang, true)
+          else
+            local answer = vim.fn.confirm(
+              "Delete " .. table.concat(names, ", ") .. "?",
+              "&Yes\n&No",
+              2
+            )
+            if answer == 1 then
+              ok, err, renames = reorder.apply(source_bufnr, entries, filtered, lang, true)
+            else
+              return -- user cancelled
+            end
+          end
+        end
+
         if not ok then
           vim.notify("Fluoride: " .. (err or "unknown error"), vim.log.levels.WARN)
           return
