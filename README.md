@@ -63,13 +63,67 @@ Or map it to a keybinding:
 vim.keymap.set("n", "<leader>cp", "<cmd>CodePoints<cr>", { desc = "Open Code Points" })
 ```
 
+### Configuration
+
+```lua
+require("code-points").setup({
+  window = {
+    title = "Code Points",    -- string or false to disable
+    width = 0.3,              -- proportion of terminal width (0-1)
+    height = 0.85,            -- proportion of terminal height (0-1)
+    row = 2,                  -- fixed rows from top edge
+    col = 2,                  -- fixed cols from right edge
+    border = "single",        -- border style (see below)
+    winblend = 15,            -- transparency (0-100)
+    footer = true,            -- show/hide help footer
+    center_breakpoint = 80,   -- switch to centered layout below this width
+  },
+  keymaps = {
+    close = "q",              -- close the window
+    close_alt = "<C-c>",      -- alternative close (set false to disable)
+    jump = "<CR>",            -- jump to code point
+    peek = "gd",              -- peek at code point (center + flash)
+    hover = "K",              -- LSP hover on code point
+  },
+})
+```
+
+#### Border Options
+
+The `border` option accepts any format supported by `nvim_open_win`:
+
+```lua
+-- String presets
+border = "single"     -- thin lines
+border = "double"     -- double lines
+border = "rounded"    -- rounded corners
+border = "solid"      -- solid block
+border = "none"       -- no border
+
+-- Custom characters (8-element array):
+-- { top-left, top, top-right, right, bottom-right, bottom, bottom-left, left }
+border = { "┌", "─", "┐", "│", "┘", "─", "└", "│" }
+
+-- Only left border
+border = { "", "", "", "", "", "", "", "│" }
+
+-- With highlight groups
+border = {
+  { "┌", "Comment" }, { "─", "Comment" }, { "┐", "Comment" },
+  { "│", "Comment" }, { "┘", "Comment" }, { "─", "Comment" },
+  { "└", "Comment" }, { "│", "Comment" },
+}
+```
+
 ### Keybindings (inside the float)
 
 | Key | Action |
 |-----|--------|
-| `q` | Close the window |
-| `<CR>` | Jump to the code point under cursor |
-| `:w` | Save — applies reorder and renames to the source file |
+| `q` / `<C-c>` | Close the window |
+| `<CR>` | Jump to the code point (focus moves to source) |
+| `gd` | Peek at code point (center + flash, focus stays) |
+| `K` | LSP hover on the code point |
+| `:w` | Apply changes (reorder, rename, format) |
 
 ### Workflow
 
