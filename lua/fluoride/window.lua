@@ -423,7 +423,7 @@ function M.open(source_bufnr, entries, lang, config)
           end
         end
 
-        local ok, err, renames, deletions = reorder.apply(source_bufnr, entries, filtered, lang)
+        local ok, err, renames, deletions, affected_names = reorder.apply(source_bufnr, entries, filtered, lang)
 
         -- Handle deletions: show confirmation if needed
         local did_delete = false
@@ -442,7 +442,7 @@ function M.open(source_bufnr, entries, lang, config)
 
           if not confirm_delete then
             -- Skip confirmation — re-apply with deletions allowed
-            ok, err, renames = reorder.apply(source_bufnr, entries, filtered, lang, true)
+            ok, err, renames, _, affected_names = reorder.apply(source_bufnr, entries, filtered, lang, true)
             did_delete = ok
           else
             local answer = vim.fn.confirm(
@@ -451,7 +451,7 @@ function M.open(source_bufnr, entries, lang, config)
               2
             )
             if answer == 1 then
-              ok, err, renames = reorder.apply(source_bufnr, entries, filtered, lang, true)
+              ok, err, renames, _, affected_names = reorder.apply(source_bufnr, entries, filtered, lang, true)
               did_delete = ok
             else
               return -- user cancelled
@@ -494,8 +494,78 @@ function M.open(source_bufnr, entries, lang, config)
           end
         end
 
+        -- Flash affected entries sequentially in the source window
+        local flash_ns = vim.api.nvim_create_namespace("fluoride_save_flash")
+        local function flash_affected(affected)
+          if not affected or #affected == 0 then return end
+
+          local source_win = find_source_win()
+          if not source_win then return end
+
+          -- Find affected entries in the current entries list by name
+          local to_flash = {}
+          local affected_set = {}
+          for _, name in ipairs(affected) do
+            affected_set[name] = true
+          end
+
+          -- Collect matching entries (top-level and children)
+          for _, entry in ipairs(entries) do
+            if affected_set[entry.name] then
+              table.insert(to_flash, entry)
+            end
+            if entry.children then
+              for _, child in ipairs(entry.children) do
+                if affected_set[child.name] then
+                  table.insert(to_flash, child)
+                end
+              end
+            end
+          end
+
+          if #to_flash == 0 then return end
+
+          local index = 1
+          local function flash_next()
+            if index > #to_flash then
+              -- Clear the last flash
+              vim.defer_fn(function()
+                if vim.api.nvim_buf_is_valid(source_bufnr) then
+                  vim.api.nvim_buf_clear_namespace(source_bufnr, flash_ns, 0, -1)
+                end
+              end, 130)
+              return
+            end
+
+            -- Clear previous
+            vim.api.nvim_buf_clear_namespace(source_bufnr, flash_ns, 0, -1)
+
+            local entry = to_flash[index]
+
+            -- Scroll source window to center the entry
+            if vim.api.nvim_win_is_valid(source_win) then
+              pcall(function()
+                vim.api.nvim_win_call(source_win, function()
+                  vim.api.nvim_win_set_cursor(source_win, { entry.start_row + 1, 0 })
+                  vim.cmd("normal! zz")
+                end)
+              end)
+            end
+
+            -- Highlight the entry
+            for row = entry.start_row, entry.end_row do
+              pcall(vim.api.nvim_buf_add_highlight, source_bufnr, flash_ns, "Visual", row, 0, -1)
+            end
+
+            index = index + 1
+            vim.defer_fn(flash_next, 130)
+          end
+
+          flash_next()
+        end
+
         -- Refresh the Fluoride list after changes are applied
-        local function refresh()
+        local function refresh(affected)
           format_source()
 
           -- Re-extract declarations from the updated source buffer
@@ -510,6 +580,9 @@ function M.open(source_bufnr, entries, lang, config)
             apply_highlights(buf, highlights, sorted_prefixes)
             update_footer()
           end
+
+          -- Flash affected entries after refresh
+          flash_affected(affected)
         end
 
         -- Apply LSP renames if any names were changed
@@ -520,19 +593,19 @@ function M.open(source_bufnr, entries, lang, config)
                 .. #renames .. " rename(s) skipped.",
               vim.log.levels.WARN
             )
-            refresh()
+            refresh(affected_names)
             return
           end
 
           vim.notify("Fluoride: reorder applied, processing " .. #renames .. " rename(s)...", vim.log.levels.INFO)
           rename.apply_renames(source_bufnr, renames, function()
             vim.notify("Fluoride: all renames complete", vim.log.levels.INFO)
-            refresh()
+            refresh(affected_names)
           end)
         else
           local msg = did_delete and "Fluoride: deletion applied" or "Fluoride: reorder applied"
           vim.notify(msg, vim.log.levels.INFO)
-          refresh()
+          refresh(affected_names)
         end
       end)
 

@@ -335,7 +335,7 @@ end
 --- @return table[]|nil deletions list of { name, display_type } if deletions detected but not allowed
 function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_deletions)
   if #new_display_lines == 0 then
-    return false, "no entries in the reorder list", {}, nil
+    return false, "no entries in the reorder list", {}, nil, nil
   end
 
   local type_prefixes = build_type_prefixes(lang)
@@ -359,12 +359,12 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
       local prefix, name = parse_display_content(content, type_prefixes)
 
       if not name then
-        return false, "could not parse line: " .. line, {}, nil
+        return false, "could not parse line: " .. line, {}, nil, nil
       end
 
       if is_child then
         if not current_parent then
-          return false, "child line without parent: " .. line, {}, nil
+          return false, "child line without parent: " .. line, {}, nil, nil
         end
         table.insert(current_parent.children, {
           prefix = prefix,
@@ -407,7 +407,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
 
     if #deletions > 0 and not allow_deletions then
       -- Return deletions for the caller to confirm
-      return false, nil, {}, deletions
+      return false, nil, {}, deletions, nil
     end
 
     -- If deletions are allowed, filter original_entries to exclude deleted ones
@@ -425,8 +425,9 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
     end
   end
 
-  -- Detect top-level renames and build a set of existing names
+  -- Detect top-level renames, reorders, and build a set of existing names
   local renames = {}
+  local affected_names = {}
   local existing_names = {}
   for _, entry in ipairs(original_entries) do
     existing_names[entry.name] = true
@@ -435,9 +436,11 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
   for i, p in ipairs(parent_parsed) do
     if parent_matched[i] then
       local entry = original_entries[parent_matched[i]]
+      -- Detect rename
       if p.name ~= entry.name then
         table.insert(renames, { old_name = entry.name, new_name = p.name })
         existing_names[p.name] = true
+        affected_names[p.name] = true
       end
     end
   end
@@ -491,7 +494,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
       end
 
       if not template then
-        return false, "could not find a template for duplicate entry: " .. (group.prefix or "") .. " " .. (group.name or ""), {}, nil
+        return false, "could not find a template for duplicate entry: " .. (group.prefix or "") .. " " .. (group.name or ""), {}, nil, nil
       end
 
       -- Generate a suffixed name
@@ -542,7 +545,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
 
         if #child_deletions > 0 and not allow_deletions then
           -- Return child deletions for the caller to confirm
-          return false, nil, {}, child_deletions
+          return false, nil, {}, child_deletions, nil
         end
 
         -- If deletions allowed, filter out deleted children and re-match
@@ -606,7 +609,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
           end
 
           if not template_child then
-            return false, "could not find template for duplicate child in '" .. orig_entry.name .. "'", {}, nil
+            return false, "could not find template for duplicate child in '" .. orig_entry.name .. "'", {}, nil, nil
           end
 
           local new_child_name = next_suffix_name(template_child.name, child_existing_names)
@@ -775,7 +778,13 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
   -- Apply changes using minimal diff
   diff.apply_minimal(source_bufnr, result)
 
-  return true, nil, renames, nil
+  -- Convert affected_names set to list
+  local affected_list = {}
+  for name in pairs(affected_names) do
+    table.insert(affected_list, name)
+  end
+
+  return true, nil, renames, nil, affected_list
 end
 
 return M
