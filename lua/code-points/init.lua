@@ -10,6 +10,7 @@ local DEFAULT_CONFIG = {
     border = "single",
     winblend = 15,
     footer = true,
+    center_breakpoint = 80,
   },
   keymaps = {
     close = "q",

@@ -146,10 +146,27 @@ end
 --- @param win_config table window configuration from plugin config
 --- @return number win window handle
 local function open_sidebar(buf, win_config)
-  local width = math.floor(vim.o.columns * win_config.width)
-  local height = math.floor(vim.o.lines * win_config.height)
-  local row = win_config.row
-  local col = vim.o.columns - width - win_config.col
+  local width, height, row, col
+
+      if vim.o.columns < (win_config.center_breakpoint or 80) then
+    -- Centered layout for small terminals
+    width = math.floor(vim.o.columns * 0.6)
+    height = math.floor(vim.o.lines * 0.6)
+    row = math.floor((vim.o.lines - height) / 2)
+    col = math.floor((vim.o.columns - width) / 2)
+  else
+    -- Sidebar layout (default)
+    width = math.floor(vim.o.columns * win_config.width)
+    height = math.floor(vim.o.lines * win_config.height)
+    row = win_config.row
+    col = vim.o.columns - width - win_config.col
+  end
+
+  -- Clamp dimensions to fit within the editor
+  width = math.min(width, vim.o.columns - 2)
+  height = math.min(height, vim.o.lines - 2)
+  col = math.max(col, 0)
+  row = math.max(row, 0)
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
@@ -476,6 +493,44 @@ function M.open(source_bufnr, entries, lang, config)
   active_win = win
   active_buf = buf
 
+  -- Reposition window when terminal is resized
+  local resize_group = vim.api.nvim_create_augroup("code_points_resize", { clear = true })
+  vim.api.nvim_create_autocmd("VimResized", {
+    group = resize_group,
+    callback = function()
+      if not vim.api.nvim_win_is_valid(win) then
+        vim.api.nvim_del_augroup_by_id(resize_group)
+        return
+      end
+
+      local new_width, new_height, new_row, new_col
+      if vim.o.columns < (win_config.center_breakpoint or 80) then
+        new_width = math.floor(vim.o.columns * 0.6)
+        new_height = math.floor(vim.o.lines * 0.6)
+        new_row = math.floor((vim.o.lines - new_height) / 2)
+        new_col = math.floor((vim.o.columns - new_width) / 2)
+      else
+        new_width = math.floor(vim.o.columns * win_config.width)
+        new_height = math.floor(vim.o.lines * win_config.height)
+        new_row = win_config.row
+        new_col = vim.o.columns - new_width - win_config.col
+      end
+
+      new_width = math.min(new_width, vim.o.columns - 2)
+      new_height = math.min(new_height, vim.o.lines - 2)
+      new_col = math.max(new_col, 0)
+      new_row = math.max(new_row, 0)
+
+      vim.api.nvim_win_set_config(win, {
+        relative = "editor",
+        width = new_width,
+        height = new_height,
+        row = new_row,
+        col = new_col,
+      })
+    end,
+  })
+
   -- Cleanup buffer when window is closed
   vim.api.nvim_create_autocmd("WinClosed", {
     pattern = tostring(win),
@@ -483,6 +538,7 @@ function M.open(source_bufnr, entries, lang, config)
     callback = function()
       active_win = nil
       active_buf = nil
+      pcall(vim.api.nvim_del_augroup_by_id, resize_group)
       if vim.api.nvim_buf_is_valid(buf) then
         vim.api.nvim_buf_delete(buf, { force = true })
       end
