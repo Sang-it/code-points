@@ -232,6 +232,7 @@ function M.open(source_bufnr, entries, lang, config)
 
   -- Open the sidebar
   local win_config = config and config.window or {}
+  local km = config and config.keymaps or {}
   local win = open_sidebar(buf, win_config)
 
   -- Apply initial syntax highlighting
@@ -293,9 +294,6 @@ function M.open(source_bufnr, entries, lang, config)
       end
     end,
   })
-
-  -- Keymap configuration
-  local km = config and config.keymaps or {}
 
   -- Helper: find the source window
   local function find_source_win()
