@@ -29,6 +29,8 @@ M.highlights = {
   ["type"]  = { prefix = "Type",     name = "Type" },
   ["var"]   = { prefix = "Keyword",  name = "Identifier" },
   ["const"] = { prefix = "Keyword",  name = "Identifier" },
+  ["field"] = { prefix = "Keyword",  name = "Identifier" },
+  ["method spec"] = { prefix = "Keyword", name = "Function" },
 }
 
 function M.is_declaration(node)
@@ -102,18 +104,38 @@ function M.get_name(node, bufnr)
     end
   end
 
+  -- Struct field declarations
+  if node_type == "field_declaration" then
+    local name_node = node:field("name")[1]
+    if name_node then
+      return vim.treesitter.get_node_text(name_node, bufnr)
+    end
+  end
+
+  -- Interface method specs
+  if node_type == "method_spec" then
+    local name_node = node:field("name")[1]
+    if name_node then
+      return vim.treesitter.get_node_text(name_node, bufnr)
+    end
+  end
+
   return "[unknown]"
 end
 
 function M.get_display_type(node, _bufnr)
   local node_type = node:type()
+
+  if node_type == "field_declaration" then return "field" end
+  if node_type == "method_spec" then return "method spec" end
+
   return DECLARATION_TYPES[node_type] or node_type
 end
 
 function M.get_arity(node, _bufnr)
   local node_type = node:type()
 
-  if node_type == "function_declaration" or node_type == "method_declaration" then
+  if node_type == "function_declaration" or node_type == "method_declaration" or node_type == "method_spec" then
     local params = node:field("parameters")[1]
     if params then
       local count = 0
@@ -137,6 +159,57 @@ function M.get_arity(node, _bufnr)
   end
 
   return nil
+end
+
+--- Check if a node contains child declarations.
+function M.is_nestable(node)
+  if node:type() == "type_declaration" then
+    for child in node:iter_children() do
+      if child:type() == "type_spec" then
+        local type_node = child:field("type")[1]
+        if type_node then
+          local tt = type_node:type()
+          if tt == "struct_type" or tt == "interface_type" then
+            return true
+          end
+        end
+      end
+    end
+  end
+  return false
+end
+
+function M.get_body_node(node)
+  if node:type() == "type_declaration" then
+    for child in node:iter_children() do
+      if child:type() == "type_spec" then
+        local type_node = child:field("type")[1]
+        if type_node then
+          local tt = type_node:type()
+          if tt == "struct_type" then
+            for sub in type_node:iter_children() do
+              if sub:type() == "field_declaration_list" then
+                return sub
+              end
+            end
+          end
+          if tt == "interface_type" then
+            return type_node
+          end
+        end
+      end
+    end
+  end
+  return nil
+end
+
+local GO_CHILD_TYPES = {
+  field_declaration = true,
+  method_spec = true,
+}
+
+function M.is_child_declaration(node)
+  return GO_CHILD_TYPES[node:type()] or false
 end
 
 return M

@@ -50,6 +50,9 @@ M.highlights = {
   ["mod"]     = { prefix = "Keyword",  name = "Identifier" },
   ["pub mod"] = { prefix = "Keyword",  name = "Identifier" },
   ["macro"]   = { prefix = "Keyword",  name = "Function" },
+  ["field"]   = { prefix = "Keyword",  name = "Identifier" },
+  ["pub field"] = { prefix = "Keyword", name = "Identifier" },
+  ["variant"] = { prefix = "Type",     name = "Identifier" },
 }
 
 function M.is_declaration(node)
@@ -100,6 +103,14 @@ function M.get_name(node, bufnr)
     end
   end
 
+  -- Struct fields and enum variants
+  if node_type == "field_declaration" or node_type == "enum_variant" then
+    local name_node = node:field("name")[1]
+    if name_node then
+      return vim.treesitter.get_node_text(name_node, bufnr)
+    end
+  end
+
   -- macro_definition: macro_rules! name { ... }
   if node_type == "macro_definition" then
     local name_node = node:field("name")[1]
@@ -113,6 +124,16 @@ end
 
 function M.get_display_type(node, bufnr)
   local node_type = node:type()
+
+  -- Struct fields and enum variants
+  if node_type == "field_declaration" then
+    if is_pub(node, bufnr) then return "pub field" end
+    return "field"
+  end
+  if node_type == "enum_variant" then
+    return "variant"
+  end
+
   local base = DECLARATION_TYPES[node_type] or node_type
 
   if is_pub(node, bufnr) and base ~= "impl" and base ~= "macro" then
@@ -153,7 +174,7 @@ end
 --- @return boolean
 function M.is_nestable(node)
   local t = node:type()
-  return t == "impl_item" or t == "trait_item"
+  return t == "impl_item" or t == "trait_item" or t == "struct_item" or t == "enum_item"
 end
 
 --- Get the body node to iterate for child declarations.
@@ -168,14 +189,30 @@ function M.get_body_node(node)
       end
     end
   end
+  if t == "struct_item" then
+    for child in node:iter_children() do
+      if child:type() == "field_declaration_list" then
+        return child
+      end
+    end
+  end
+  if t == "enum_item" then
+    for child in node:iter_children() do
+      if child:type() == "enum_variant_list" then
+        return child
+      end
+    end
+  end
   return nil
 end
 
--- Child node types inside impl/trait blocks
+-- Child node types inside impl/trait/struct/enum blocks
 local CHILD_TYPES = {
   function_item = true,
   const_item = true,
   type_item = true,
+  field_declaration = true,
+  enum_variant = true,
 }
 
 --- Check if a child node inside a nestable parent is a declaration.

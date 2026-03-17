@@ -37,6 +37,9 @@ M.highlights = {
   ["class"]     = { prefix = "Type",     name = "Type" },
   ["namespace"] = { prefix = "Keyword",  name = "Identifier" },
   ["template"]  = { prefix = "Keyword",  name = "Function" },
+  -- Struct/union/enum children
+  ["field"]      = { prefix = "Keyword",  name = "Identifier" },
+  ["enumerator"] = { prefix = "Type",     name = "Identifier" },
 }
 
 function M.is_declaration(node)
@@ -154,6 +157,22 @@ function M.get_name(node, bufnr)
     end
   end
 
+  -- Struct/union field declarations (inside struct body)
+  if node_type == "field_declaration" then
+    local declarator = node:field("declarator")[1]
+    if declarator then
+      return vim.treesitter.get_node_text(declarator, bufnr):match("^[%*]*(%w+)") or vim.treesitter.get_node_text(declarator, bufnr)
+    end
+  end
+
+  -- Enum enumerators
+  if node_type == "enumerator" then
+    local name_node = node:field("name")[1]
+    if name_node then
+      return vim.treesitter.get_node_text(name_node, bufnr)
+    end
+  end
+
   return "[unknown]"
 end
 
@@ -196,6 +215,8 @@ function M.get_display_type(node, bufnr)
   if node_type == "enum_specifier" then return "enum" end
   if node_type == "union_specifier" then return "union" end
   if node_type == "class_specifier" then return "class" end
+  if node_type == "field_declaration" then return "field" end
+  if node_type == "enumerator" then return "enumerator" end
   if node_type == "namespace_definition" then return "namespace" end
 
   if node_type == "template_declaration" then
@@ -273,32 +294,83 @@ function M.get_arity(node, _bufnr)
   return nil
 end
 
--- C++ class nesting support
+-- Nesting support for C/C++ structs, enums, unions, and classes
 function M.is_nestable(node)
-  return node:type() == "class_specifier"
+  local t = node:type()
+  if t == "class_specifier" or t == "struct_specifier" or t == "union_specifier" then
+    return true
+  end
+  if t == "enum_specifier" then
+    return true
+  end
+  -- Handle bare declarations wrapping struct/enum/union (e.g., "enum Foo { ... };")
+  if t == "declaration" then
+    for child in node:iter_children() do
+      local ct = child:type()
+      if ct == "struct_specifier" or ct == "enum_specifier" or ct == "union_specifier" then
+        -- Check if it has a body (not just a forward declaration)
+        for sub in child:iter_children() do
+          if sub:type() == "field_declaration_list" or sub:type() == "enumerator_list" then
+            return true
+          end
+        end
+      end
+    end
+  end
+  return false
 end
 
 function M.get_body_node(node)
-  if node:type() == "class_specifier" then
+  local t = node:type()
+  if t == "class_specifier" or t == "struct_specifier" or t == "union_specifier" then
     for child in node:iter_children() do
       if child:type() == "field_declaration_list" then
         return child
       end
     end
   end
+  if t == "enum_specifier" then
+    for child in node:iter_children() do
+      if child:type() == "enumerator_list" then
+        return child
+      end
+    end
+  end
+  -- Handle bare declarations wrapping struct/enum/union
+  if t == "declaration" then
+    for child in node:iter_children() do
+      local ct = child:type()
+      if ct == "struct_specifier" or ct == "union_specifier" then
+        for sub in child:iter_children() do
+          if sub:type() == "field_declaration_list" then
+            return sub
+          end
+        end
+      end
+      if ct == "enum_specifier" then
+        for sub in child:iter_children() do
+          if sub:type() == "enumerator_list" then
+            return sub
+          end
+        end
+      end
+    end
+  end
   return nil
 end
 
-local CPP_CHILD_TYPES = {
+local C_CHILD_TYPES = {
   function_definition = true,
   declaration = true,
+  field_declaration = true,
+  enumerator = true,
 }
 
 function M.is_child_declaration(node)
   local t = node:type()
   -- Skip access specifiers (public:, private:, protected:)
   if t == "access_specifier" then return false end
-  return CPP_CHILD_TYPES[t] or false
+  return C_CHILD_TYPES[t] or false
 end
 
 return M

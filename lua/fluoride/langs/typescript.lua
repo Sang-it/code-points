@@ -58,6 +58,7 @@ M.highlights = {
   ["switch"]           = { prefix = "Keyword",  name = "Identifier" },
   ["try"]              = { prefix = "Keyword",  name = "Identifier" },
   ["do"]               = { prefix = "Keyword",  name = "Identifier" },
+  ["member"]           = { prefix = "Keyword",  name = "Identifier" },
 }
 
 --- Check if a top-level node is a code point (not a skip type).
@@ -167,6 +168,18 @@ function M.get_name(node, bufnr)
     end
   end
 
+  -- Enum members
+  if node_type == "enum_assignment" then
+    local name_node = node:field("name")[1]
+    if name_node then
+      return vim.treesitter.get_node_text(name_node, bufnr)
+    end
+  end
+
+  if node_type == "property_identifier" then
+    return vim.treesitter.get_node_text(node, bufnr)
+  end
+
   -- Interface members
   if node_type == "property_signature" or node_type == "method_signature" or node_type == "function_signature" then
     local name_node = node:field("name")[1]
@@ -230,6 +243,11 @@ function M.get_display_type(node, bufnr)
   end
   if node_type == "property_signature" then
     return "property"
+  end
+
+  -- Enum members
+  if node_type == "enum_assignment" or node_type == "property_identifier" then
+    return "member"
   end
 
   -- Statement types
@@ -333,7 +351,7 @@ end
 --- @return boolean
 function M.is_nestable(node)
   local t = node:type()
-  return t == "class_declaration" or t == "interface_declaration"
+  return t == "class_declaration" or t == "interface_declaration" or t == "enum_declaration"
 end
 
 --- Get the body node to iterate for child declarations.
@@ -355,6 +373,13 @@ function M.get_body_node(node)
       end
     end
   end
+  if t == "enum_declaration" then
+    for child in node:iter_children() do
+      if child:type() == "enum_body" then
+        return child
+      end
+    end
+  end
   return nil
 end
 
@@ -365,6 +390,9 @@ local CHILD_TYPES = {
   property_signature = true,
   method_signature = true,
   function_signature = true,
+  -- Enum members
+  enum_assignment = true,
+  property_identifier = true,
 }
 
 --- Check if a child node inside a class is a declaration.
