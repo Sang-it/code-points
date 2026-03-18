@@ -484,7 +484,7 @@ function M.open(source_bufnr, entries, lang, config)
           end
         end
 
-        local ok, err, renames, deletions, affected_names = reorder.apply(source_bufnr, entries, filtered, lang)
+        local ok, err, renames, deletions, affected_names, changes_made = reorder.apply(source_bufnr, entries, filtered, lang)
 
         -- Handle deletions: show confirmation if needed
         local did_delete = false
@@ -503,7 +503,7 @@ function M.open(source_bufnr, entries, lang, config)
 
           if not confirm_delete then
             -- Skip confirmation — re-apply with deletions allowed
-            ok, err, renames, _, affected_names = reorder.apply(source_bufnr, entries, filtered, lang, true)
+            ok, err, renames, _, affected_names, changes_made = reorder.apply(source_bufnr, entries, filtered, lang, true)
             did_delete = ok
           else
             local answer = vim.fn.confirm(
@@ -512,7 +512,7 @@ function M.open(source_bufnr, entries, lang, config)
               2
             )
             if answer == 1 then
-              ok, err, renames, _, affected_names = reorder.apply(source_bufnr, entries, filtered, lang, true)
+              ok, err, renames, _, affected_names, changes_made = reorder.apply(source_bufnr, entries, filtered, lang, true)
               did_delete = ok
             else
               return -- user cancelled
@@ -650,7 +650,7 @@ function M.open(source_bufnr, entries, lang, config)
         if renames and #renames > 0 then
           if not rename.has_rename_support(source_bufnr) then
             vim.notify(
-              "Fluoride: reorder applied, but no LSP client with rename support is attached. "
+              "Fluoride: no LSP client with rename support attached. "
                 .. #renames .. " rename(s) skipped.",
               vim.log.levels.WARN
             )
@@ -658,14 +658,17 @@ function M.open(source_bufnr, entries, lang, config)
             return
           end
 
-          vim.notify("Fluoride: reorder applied, processing " .. #renames .. " rename(s)...", vim.log.levels.INFO)
+          vim.notify("Fluoride: processing " .. #renames .. " rename(s)...", vim.log.levels.INFO)
           rename.apply_renames(source_bufnr, renames, function()
-            vim.notify("Fluoride: all renames complete", vim.log.levels.INFO)
+            vim.notify("Fluoride: " .. #renames .. " rename(s) complete", vim.log.levels.INFO)
             refresh(affected_names)
           end)
         else
-          local msg = did_delete and "Fluoride: deletion applied" or "Fluoride: reorder applied"
-          vim.notify(msg, vim.log.levels.INFO)
+          -- Show reorder/deletion message only if changes were actually made
+          if changes_made then
+            local msg = did_delete and "Fluoride: deletion applied" or "Fluoride: reorder applied"
+            vim.notify(msg, vim.log.levels.INFO)
+          end
           refresh(affected_names)
         end
       end)

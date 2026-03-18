@@ -348,10 +348,11 @@ end
 --- @return table[]|nil deletions list of { name, display_type } if deletions detected but not allowed
 function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_deletions)
   if #new_display_lines == 0 then
-    return false, "no entries in the reorder list", {}, nil, nil
+    return false, "no entries in the reorder list", {}, nil, nil, false
   end
 
   local type_prefixes = build_type_prefixes(lang)
+  local changes_made = false
 
   -- Parse display lines into a tree structure:
   -- Group consecutive child lines under their preceding parent line.
@@ -507,6 +508,10 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
         existing_names[p.name] = true
         affected_names[p.name] = true
       end
+      -- Detect top-level reorder
+      if parent_matched[i] ~= i then
+        changes_made = true
+      end
     end
   end
 
@@ -580,6 +585,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
         children = template.children and vim.deepcopy(template.children) or nil,
         is_duplicate = true,
       }
+      changes_made = true
     end
 
     -- If this parent has children, check if they were reordered (skip for duplicates)
@@ -648,6 +654,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
         else
           -- Unmatched — this is a duplicate child
           has_child_duplicates = true
+          changes_made = true
 
           -- Find template: look at the child directly above with the same prefix
           local template_child = nil
@@ -697,12 +704,19 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
       for _, child_group in ipairs(group.children) do
         if child_group.new_comments and #child_group.new_comments > 0 then
           has_child_new_comments = true
+          changes_made = true
           break
         end
       end
 
       -- Reconstruct if children were reordered, duplicated, deleted, or have new comments
       local has_child_deletions = #orig_children ~= #(orig_entry.children or {})
+      if has_child_deletions then
+        changes_made = true
+      end
+      if children_order_changed(child_matched, #orig_children) then
+        changes_made = true
+      end
       if has_child_duplicates or has_child_deletions or children_order_changed(child_matched, #orig_children) or has_child_new_comments then
         local lp = lang.comment_prefix or "//"
         entry_copy.lines = reconstruct_parent(orig_entry, ordered_children, child_matched, group.children, lp, orig_children)
@@ -792,6 +806,9 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
     -- Add the entry's lines, inserting new comments between existing comments and the declaration
     local group = parsed_groups[i]
     local has_new_comments = group.new_comments and #group.new_comments > 0
+    if has_new_comments then
+      changes_made = true
+    end
     local comment_line_count = entry.decl_start_row - entry.start_row
 
     if has_new_comments and comment_line_count > 0 then
@@ -848,7 +865,7 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
     table.insert(affected_list, name)
   end
 
-  return true, nil, renames, nil, affected_list
+  return true, nil, renames, nil, affected_list, changes_made
 end
 
 return M
