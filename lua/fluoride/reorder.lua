@@ -333,9 +333,24 @@ local function reconstruct_parent(parent, ordered_children, child_matched, child
     -- Add the trailing gap from the original child
     local orig_idx = child_matched[i]
     local gap = child_trailing_gaps[orig_idx]
-    if has_gap_content(gap) then
-      for _, line in ipairs(gap) do
-        table.insert(result, line)
+    local is_enum = parent.display_type and parent.display_type:match("enum") ~= nil
+    if is_enum then
+      -- Enums: only emit gaps with real content (comments), keep members compact
+      if has_gap_content(gap) then
+        for _, line in ipairs(gap) do
+          table.insert(result, line)
+        end
+      end
+    else
+      -- Non-enums (classes, interfaces, namespaces): preserve blank line spacing
+      if gap and #gap > 0 then
+        for _, line in ipairs(gap) do
+          table.insert(result, line)
+        end
+      else
+        if i < #ordered_children then
+          table.insert(result, "")
+        end
       end
     end
   end
@@ -847,16 +862,15 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
       end
     end
 
-    -- Add the trailing gap from the original entry
-    local orig_idx = orig_index_map[i]
-    local gap = trailing_gaps[orig_idx]
-    if gap and #gap > 0 then
-      for _, line in ipairs(gap) do
-        table.insert(result, line)
-      end
-    else
-      -- No original gap — add a blank line separator (unless it's the last entry)
-      if i < #ordered_entries then
+    -- Add the trailing gap from the original entry (skip for last entry to avoid trailing whitespace)
+    if i < #ordered_entries then
+      local orig_idx = orig_index_map[i]
+      local gap = trailing_gaps[orig_idx]
+      if gap and #gap > 0 then
+        for _, line in ipairs(gap) do
+          table.insert(result, line)
+        end
+      else
         table.insert(result, "")
       end
     end
