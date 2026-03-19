@@ -412,7 +412,7 @@ function M.open(source_bufnr, entries, lang, config)
         vim.api.nvim_set_current_win(source_win)
         local col = find_symbol_col(map_entry.entry.name, target_row - 1)
         vim.api.nvim_win_set_cursor(source_win, { target_row, col })
-        vim.fn.winrestview({ topline = target_row })
+        vim.cmd("normal! zz")
       end
     end, "Jump to code point")
 
@@ -445,6 +445,7 @@ function M.open(source_bufnr, entries, lang, config)
         vim.api.nvim_set_current_win(source_win)
         local col = find_symbol_col(map_entry.entry.name, target_row - 1)
         vim.api.nvim_win_set_cursor(source_win, { target_row, col })
+        vim.cmd("normal! zz")
         vim.lsp.buf.hover()
       end
     end, "LSP hover for code point")
