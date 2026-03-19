@@ -452,7 +452,21 @@ function M.open(source_bufnr, entries, lang, config)
 
     -- Cycle child declarations depth visibility
     map(km.toggle_children or "<Tab>", function()
-      if current_depth >= configured_max_depth then
+      -- Compute the actual max depth present in the entries so we don't
+      -- cycle through depths that produce no visible difference
+      local function get_max_depth(entry_list, depth)
+        local max_d = depth
+        for _, e in ipairs(entry_list) do
+          if e.children and #e.children > 0 then
+            local child_d = get_max_depth(e.children, depth + 1)
+            if child_d > max_d then max_d = child_d end
+          end
+        end
+        return max_d
+      end
+      local effective_max = math.min(configured_max_depth, get_max_depth(entries, 0))
+
+      if current_depth >= effective_max then
         current_depth = 0
       else
         current_depth = current_depth + 1
