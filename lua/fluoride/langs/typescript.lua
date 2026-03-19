@@ -75,10 +75,9 @@ M.highlights = {
   ["abstract method"]         = { prefix = "Keyword",  name = "Function" },
   ["property"]                = { prefix = "Keyword",  name = "Identifier" },
   ["member"]                  = { prefix = "Keyword",  name = "Identifier" },
-  ["index"]                   = { prefix = "Keyword",  name = "Identifier" },
+
   ["static block"]            = { prefix = "Keyword",  name = "Identifier" },
-  ["call"]                    = { prefix = "Keyword",  name = "Function" },
-  ["new"]                     = { prefix = "Keyword",  name = "Function" },
+
   ["if"]                      = { prefix = "Keyword",  name = "Identifier" },
   ["while"]                   = { prefix = "Keyword",  name = "Identifier" },
   ["for"]                     = { prefix = "Keyword",  name = "Identifier" },
@@ -259,41 +258,14 @@ function M.get_name(node, bufnr)
     end
   end
 
-  -- Index signature: [key: type]: type
-  if node_type == "index_signature" then
-    local text = vim.treesitter.get_node_text(node, bufnr)
-    local first_line = text:match("^([^\n]*)")
-    if #first_line > 40 then
-      first_line = first_line:sub(1, 37) .. "..."
-    end
-    return first_line
-  end
-
   -- Static block
   if node_type == "static_block" then
     return "<static>"
   end
 
-  -- Call signature: (arg: type): return
-  if node_type == "call_signature" then
-    local text = vim.treesitter.get_node_text(node, bufnr)
-    local first_line = text:match("^([^\n]*)")
-    if #first_line > 40 then
-      first_line = first_line:sub(1, 37) .. "..."
-    end
-    return first_line
-  end
-
-  -- Construct signature: new (arg: type): return — strip leading "new" to avoid duplication with display_type
+  -- Construct signature: new (arg: type): return — display as "method new"
   if node_type == "construct_signature" then
-    local text = vim.treesitter.get_node_text(node, bufnr)
-    local first_line = text:match("^([^\n]*)")
-    first_line = first_line:gsub("^new%s*", "")
-    first_line = vim.trim(first_line)
-    if #first_line > 40 then
-      first_line = first_line:sub(1, 37) .. "..."
-    end
-    return first_line
+    return "new"
   end
 
   return "[unknown]"
@@ -379,10 +351,9 @@ function M.get_display_type(node, bufnr)
   end
 
   -- Index, static block, call/construct signatures
-  if node_type == "index_signature" then return "index" end
+
   if node_type == "static_block" then return "static block" end
-  if node_type == "call_signature" then return "call" end
-  if node_type == "construct_signature" then return "new" end
+  if node_type == "construct_signature" then return "method" end
 
   -- expression_statement wrapping an internal_module (namespace)
   if node_type == "expression_statement" then
@@ -427,7 +398,6 @@ function M.get_arity(node, _bufnr)
     or node_type == "abstract_method_signature"
     or node_type == "method_signature"
     or node_type == "function_signature"
-    or node_type == "call_signature"
     or node_type == "construct_signature"
   then
     local params = node:field("parameters")[1]
@@ -585,9 +555,7 @@ local CHILD_TYPES = {
   property_signature = true,
   method_signature = true,
   function_signature = true,
-  call_signature = true,
   construct_signature = true,
-  index_signature = true,
   -- Enum members
   enum_assignment = true,
   property_identifier = true,
