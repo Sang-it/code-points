@@ -31,7 +31,10 @@ M.highlights = {
   ["struct"]    = { prefix = "Type",     name = "Type" },
   ["enum"]      = { prefix = "Type",     name = "Type" },
   ["union"]     = { prefix = "Type",     name = "Type" },
-  ["typedef"]   = { prefix = "Type",     name = "Type" },
+  ["typedef"]        = { prefix = "Type",     name = "Type" },
+  ["typedef struct"] = { prefix = "Type",     name = "Type" },
+  ["typedef enum"]   = { prefix = "Type",     name = "Type" },
+  ["typedef union"]  = { prefix = "Type",     name = "Type" },
   ["variable"]  = { prefix = "Keyword",  name = "Identifier" },
   ["#define"]   = { prefix = "PreProc",  name = "Identifier" },
   -- C++ additions
