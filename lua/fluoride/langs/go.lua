@@ -84,17 +84,40 @@ function M.get_name(node, bufnr)
 
   -- var_declaration / const_declaration
   if node_type == "var_declaration" or node_type == "const_declaration" then
-    for child in node:iter_children() do
-      if child:type() == "var_spec" or child:type() == "const_spec" then
-        local name_node = child:field("name")[1]
-        if name_node then
-          return vim.treesitter.get_node_text(name_node, bufnr)
+    -- Collect all spec names (handles both single and grouped declarations)
+    local names = {}
+    local function collect_specs(parent)
+      for child in parent:iter_children() do
+        local ct = child:type()
+        if ct == "var_spec" or ct == "const_spec" then
+          local name_node = child:field("name")[1]
+          if name_node then
+            table.insert(names, vim.treesitter.get_node_text(name_node, bufnr))
+          end
+        elseif ct == "var_spec_list" or ct == "const_spec_list" then
+          collect_specs(child)
         end
       end
     end
-    -- Grouped declaration: var ( ... ) — use first line
+    collect_specs(node)
+
+    if #names == 1 then
+      return names[1]
+    elseif #names > 1 then
+      local result = table.concat(names, ", ")
+      if #result > 40 then
+        result = result:sub(1, 37) .. "..."
+      end
+      return result
+    end
+
+    -- Fallback: strip keyword from first line
     local text = vim.treesitter.get_node_text(node, bufnr)
     local first_line = text:match("^([^\n]*)")
+    local keyword = node_type == "var_declaration" and "var" or "const"
+    first_line = first_line:gsub("^" .. keyword .. "%s*", "")
+    first_line = vim.trim(first_line)
+    if first_line == "" or first_line == "(" then first_line = "<grouped>" end
     if #first_line > 40 then
       first_line = first_line:sub(1, 37) .. "..."
     end
