@@ -137,10 +137,21 @@ function M.get_name(node, bufnr)
         return M.get_name(child, bufnr)
       end
     end
-    -- Fallback: strip "export" / "export default" from the first line to avoid duplication
+    -- Fallback: check if this is "export default"
     local text = vim.treesitter.get_node_text(node, bufnr)
     local first_line = text:match("^([^\n]*)")
-    first_line = first_line:gsub("^export%s+default%s+", "")
+    if first_line:match("^export%s+default%s") then
+      -- Show a clean name for export default statements
+      local rest = first_line:gsub("^export%s+default%s+", "")
+      rest = vim.trim(rest)
+      if rest == "" or rest == "{" then
+        return "default"
+      end
+      if #rest > 40 then
+        rest = rest:sub(1, 37) .. "..."
+      end
+      return rest
+    end
     first_line = first_line:gsub("^export%s+", "")
     first_line = vim.trim(first_line)
     if #first_line > 40 then
@@ -196,7 +207,10 @@ function M.get_name(node, bufnr)
   then
     local text = vim.treesitter.get_node_text(node, bufnr)
     local first_line = text:match("^([^\n]*)")
-    local keyword = node_type:match("^(%w+)_statement$") or node_type
+    -- Extract the source keyword from node_type (for_in_statement → "for", if_statement → "if", etc.)
+    local keyword = node_type:match("^(.+)_statement$") or node_type
+    -- for_in_statement and for_statement both use "for" keyword in source
+    if keyword == "for_in" or keyword == "for" then keyword = "for" end
     if first_line:sub(1, #keyword) == keyword then
       first_line = vim.trim(first_line:sub(#keyword + 1))
     end
@@ -211,7 +225,7 @@ function M.get_name(node, bufnr)
   end
 
   -- Class members
-  if node_type == "method_definition" or node_type == "abstract_method_definition" then
+  if node_type == "method_definition" or node_type == "abstract_method_definition" or node_type == "abstract_method_signature" then
     local name_node = node:field("name")[1]
     if name_node then
       return vim.treesitter.get_node_text(name_node, bufnr)
@@ -270,10 +284,12 @@ function M.get_name(node, bufnr)
     return first_line
   end
 
-  -- Construct signature: new (arg: type): return
+  -- Construct signature: new (arg: type): return — strip leading "new" to avoid duplication with display_type
   if node_type == "construct_signature" then
     local text = vim.treesitter.get_node_text(node, bufnr)
     local first_line = text:match("^([^\n]*)")
+    first_line = first_line:gsub("^new%s*", "")
+    first_line = vim.trim(first_line)
     if #first_line > 40 then
       first_line = first_line:sub(1, 37) .. "..."
     end
@@ -339,7 +355,7 @@ function M.get_display_type(node, bufnr)
   if node_type == "method_definition" then
     return "method"
   end
-  if node_type == "abstract_method_definition" then
+  if node_type == "abstract_method_definition" or node_type == "abstract_method_signature" then
     return "abstract method"
   end
   if node_type == "public_field_definition" or node_type == "property_definition" then
@@ -408,6 +424,7 @@ function M.get_arity(node, _bufnr)
     or node_type == "generator_function_declaration"
     or node_type == "method_definition"
     or node_type == "abstract_method_definition"
+    or node_type == "abstract_method_signature"
     or node_type == "method_signature"
     or node_type == "function_signature"
     or node_type == "call_signature"
@@ -560,6 +577,7 @@ local CHILD_TYPES = {
   -- Class members
   method_definition = true,
   abstract_method_definition = true,
+  abstract_method_signature = true,
   public_field_definition = true,
   property_definition = true,
   static_block = true,

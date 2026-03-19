@@ -753,22 +753,11 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
       return nil
     end
     if not group.children or #group.children == 0 then
-      -- All children were deleted
-      if not allow_deletions then
-        local child_deletions = {}
-        for _, child in ipairs(orig_entry.children) do
-          table.insert(child_deletions, {
-            name = child.name,
-            display_type = child.display_type,
-            parent_name = orig_entry.name,
-          })
-        end
-        return { ok = false, err = nil, renames = {}, deletions = child_deletions, affected = nil }
-      end
-      -- If allowed, reconstruct parent with no children
-      local lp = lang.comment_prefix or "//"
-      entry_copy.lines = reconstruct_parent(orig_entry, {}, {}, {}, lp, {})
-      changes_made = true
+      -- No children in parsed group. This could mean:
+      -- 1. Children were hidden by max_depth (display never showed them) → skip, leave unchanged
+      -- 2. User actually deleted all children → treat as deletion
+      -- We can't distinguish these here, so we skip processing entirely.
+      -- Users must have children visible (via Tab/max_depth) to delete them.
       return nil
     end
 
@@ -1293,8 +1282,10 @@ function M.apply(source_bufnr, original_entries, new_display_lines, lang, allow_
     end
   end
 
-  -- Apply changes using minimal diff
-  diff.apply_minimal(source_bufnr, result)
+  -- Apply changes using minimal diff (only if changes were detected)
+  if changes_made then
+    diff.apply_minimal(source_bufnr, result)
+  end
 
   return true, nil, renames, nil, affected_rows, changes_made
 end
