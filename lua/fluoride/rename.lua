@@ -67,6 +67,21 @@ function M.apply_renames(bufnr, renames, on_done)
       line, col = find_symbol_position(bufnr, old_name, 0, total_lines - 1)
     end
 
+    -- For dotted/colon names (e.g., M.greet, M:initialize), position the cursor
+    -- on the last segment so LSP renames the field, not the table.
+    -- Also extract just the last segment of new_name for the LSP rename.
+    if line and col then
+      local last_sep = old_name:find("[%.:]([^%.:]*)$")
+      if last_sep then
+        col = col + last_sep -- skip past the table name and separator
+        -- Extract just the last segment of new_name
+        local new_last_sep = new_name:find("[%.:]([^%.:]*)$")
+        if new_last_sep then
+          new_name = new_name:sub(new_last_sep + 1)
+        end
+      end
+    end
+
     if not line or not col then
       vim.notify(
         "Fluoride: could not find symbol '" .. old_name .. "' for rename",
