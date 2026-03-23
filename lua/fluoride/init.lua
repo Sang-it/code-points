@@ -69,4 +69,12 @@ function M.run()
   window.open(source_bufnr, entries, lang, M.config)
 end
 
+--- Toggle the Fluoride floating window for the current buffer.
+function M.toggle()
+  local window = require("fluoride.window")
+  if not window.close() then
+    M.run()
+  end
+end
+
 return M

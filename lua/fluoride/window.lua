@@ -302,6 +302,16 @@ end
 -- Track the current Fluoride window
 local active_win = nil
 
+--- Close the Fluoride window if it is open.
+--- @return boolean true if a window was closed
+function M.close()
+  if active_win and vim.api.nvim_win_is_valid(active_win) then
+    vim.api.nvim_win_close(active_win, true)
+    return true
+  end
+  return false
+end
+
 --- Open the Fluoride floating window.
 --- @param source_bufnr number the source buffer to operate on
 --- @param entries table[] list of code point entries from treesitter module

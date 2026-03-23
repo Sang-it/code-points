@@ -9,3 +9,10 @@ end, {
   nargs = 0,
   desc = "Open Fluoride window to view and reorder top-level declarations",
 })
+
+vim.api.nvim_create_user_command("FluorideToggle", function()
+  require("fluoride").toggle()
+end, {
+  nargs = 0,
+  desc = "Toggle Fluoride window",
+})
