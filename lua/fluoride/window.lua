@@ -299,6 +299,48 @@ local function open_sidebar(buf, win_config, source_win, enter)
   return win
 end
 
+--- Create a split window for the Fluoride buffer.
+--- @param buf number buffer handle
+--- @param split_config table split configuration { width, height, position }
+--- @param mode "vsplit"|"split" split orientation
+--- @param enter? boolean whether to enter the window (default true)
+--- @return number win window handle
+local function open_split(buf, split_config, mode, enter)
+  if enter == nil then enter = true end
+  split_config = split_config or {}
+  local position = split_config.position or (mode == "vsplit" and "right" or "bottom")
+
+  local prev_win = vim.api.nvim_get_current_win()
+
+  local cmd
+  if mode == "vsplit" then
+    cmd = (position == "left") and "topleft vsplit" or "botright vsplit"
+  else
+    cmd = (position == "top") and "topleft split" or "botright split"
+  end
+
+  vim.cmd(cmd)
+  local win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(win, buf)
+
+  if mode == "vsplit" then
+    vim.api.nvim_win_set_width(win, split_config.width or 40)
+  else
+    vim.api.nvim_win_set_height(win, split_config.height or 15)
+  end
+
+  vim.api.nvim_set_option_value("cursorline", true, { win = win })
+  vim.api.nvim_set_option_value("number", true, { win = win })
+  vim.api.nvim_set_option_value("relativenumber", true, { win = win })
+  vim.api.nvim_set_option_value("winhighlight", "Normal:Normal", { win = win })
+
+  if not enter then
+    vim.api.nvim_set_current_win(prev_win)
+  end
+
+  return win
+end
+
 -- Track the current Fluoride window
 local active_win = nil
 
@@ -312,12 +354,13 @@ function M.close()
   return false
 end
 
---- Open the Fluoride floating window.
+--- Open the Fluoride window.
 --- @param source_bufnr number the source buffer to operate on
 --- @param entries table[] list of code point entries from treesitter module
 --- @param lang FluorideLang the language module
 --- @param config table plugin configuration
-function M.open(source_bufnr, entries, lang, config)
+--- @param mode? "float"|"vsplit"|"split" window mode (default "float")
+function M.open(source_bufnr, entries, lang, config, mode)
   -- If a Fluoride window is already open, focus it
   if active_win and vim.api.nvim_win_is_valid(active_win) then
     vim.api.nvim_set_current_win(active_win)
@@ -355,7 +398,15 @@ function M.open(source_bufnr, entries, lang, config)
   local collapsed = {} -- per-entry fold state (entry reference -> true)
   local sidebar_visible = true
   local current_source_win = vim.api.nvim_get_current_win()
-  local win = open_sidebar(buf, win_config, current_source_win)
+  mode = mode or "float"
+  local is_split = (mode == "vsplit" or mode == "split")
+  local win
+  if is_split then
+    local split_config = (mode == "vsplit") and win_config.vsplit or win_config.split
+    win = open_split(buf, split_config, mode)
+  else
+    win = open_sidebar(buf, win_config, current_source_win)
+  end
 
   -- Repopulate with correct depth state
   display_lines, flat_map = build_display_lines(entries, current_depth, collapsed)
@@ -441,8 +492,9 @@ function M.open(source_bufnr, entries, lang, config)
     return nil
   end
 
-  -- Reposition sidebar relative to the current source window
+  -- Reposition sidebar relative to the current source window (float only)
   local function reposition_sidebar()
+    if is_split then return end
     if not vim.api.nvim_win_is_valid(win) then return end
     local src_win = current_source_win
     if not src_win or not vim.api.nvim_win_is_valid(src_win) then
@@ -463,7 +515,11 @@ function M.open(source_bufnr, entries, lang, config)
   local function hide_sidebar()
     if sidebar_visible and vim.api.nvim_win_is_valid(win) then
       sidebar_visible = false
-      vim.api.nvim_win_hide(win)
+      if is_split then
+        vim.api.nvim_win_close(win, true)
+      else
+        vim.api.nvim_win_hide(win)
+      end
     end
   end
 
@@ -742,7 +798,12 @@ function M.open(source_bufnr, entries, lang, config)
   -- Show sidebar (supported buffer focused again)
   local function show_sidebar()
     if not sidebar_visible and vim.api.nvim_buf_is_valid(buf) then
-      win = open_sidebar(buf, win_config, current_source_win, false)
+      if is_split then
+        local split_config = (mode == "vsplit") and win_config.vsplit or win_config.split
+        win = open_split(buf, split_config, mode, false)
+      else
+        win = open_sidebar(buf, win_config, current_source_win, false)
+      end
       active_win = win
       sidebar_visible = true
       rebuild_display()
@@ -1018,18 +1079,20 @@ function M.open(source_bufnr, entries, lang, config)
   -- Track the active window
   active_win = win
 
-  -- Reposition sidebar when terminal or splits are resized
+  -- Reposition sidebar when terminal or splits are resized (float only)
   local resize_group = vim.api.nvim_create_augroup("fluoride_resize", { clear = true })
-  vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
-    group = resize_group,
-    callback = function()
-      if not vim.api.nvim_win_is_valid(win) then
-        vim.api.nvim_del_augroup_by_id(resize_group)
-        return
-      end
-      reposition_sidebar()
-    end,
-  })
+  if not is_split then
+    vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
+      group = resize_group,
+      callback = function()
+        if not vim.api.nvim_win_is_valid(win) then
+          vim.api.nvim_del_augroup_by_id(resize_group)
+          return
+        end
+        reposition_sidebar()
+      end,
+    })
+  end
 
   -- Auto-reload code points when the current source file is saved
   local source_group = vim.api.nvim_create_augroup("fluoride_source", { clear = true })

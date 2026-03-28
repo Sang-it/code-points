@@ -2,6 +2,7 @@ local M = {}
 
 local DEFAULT_CONFIG = {
   window = {
+    type = "float", -- "float", "vsplit", or "split"
     title = "Fluoride",
     border = "single",
     winblend = 15,
@@ -16,6 +17,14 @@ local DEFAULT_CONFIG = {
     centered = {
       width = 0.6,
       height = 0.6,
+    },
+    vsplit = {
+      width = 40,
+      position = "right",
+    },
+    split = {
+      height = 15,
+      position = "bottom",
     },
   },
   keymaps = {
@@ -49,8 +58,12 @@ function M.setup(user_config)
   end
 end
 
---- Open the Fluoride floating window for the current buffer.
-function M.run()
+--- Open the Fluoride window for the current buffer.
+--- @param opts? { mode?: "float"|"vsplit"|"split" }
+function M.run(opts)
+  opts = opts or {}
+  local mode = opts.mode or M.config.window.type or "float"
+
   local source_bufnr = vim.api.nvim_get_current_buf()
   local treesitter = require("fluoride.treesitter")
 
@@ -66,10 +79,10 @@ function M.run()
   end
 
   local window = require("fluoride.window")
-  window.open(source_bufnr, entries, lang, M.config)
+  window.open(source_bufnr, entries, lang, M.config, mode)
 end
 
---- Toggle the Fluoride floating window for the current buffer.
+--- Toggle the Fluoride window for the current buffer.
 function M.toggle()
   local window = require("fluoride.window")
   if not window.close() then

@@ -1,6 +1,6 @@
 # fluoride.nvim
 
-A structural code editor for Neovim. View, reorder, rename, duplicate, delete, and annotate code declarations from a floating window. Powered by Treesitter and LSP.
+A structural code editor for Neovim. View, reorder, rename, duplicate, delete, and annotate code declarations from a floating window or split. Powered by Treesitter and LSP.
 
 ## Demo
 
@@ -8,7 +8,7 @@ A structural code editor for Neovim. View, reorder, rename, duplicate, delete, a
 
 ## Features
 
-- **View** all declarations (functions, classes, variables, types, structs, enums, etc.) in a floating sidebar
+- **View** all declarations (functions, classes, variables, types, structs, enums, etc.) in a floating window, vertical split, or horizontal split
 - **Nested declarations** — methods inside classes, fields inside structs, variants inside enums, functions inside impl/trait/namespace blocks (configurable depth via `max_depth`)
 - **Reorder** declarations by moving lines with vim motions (`dd` + `p`) — saves back to the source file on `:w` (children are protected from being moved outside their parent)
 - **Rename** symbols by editing names — triggers LSP rename across your project
@@ -67,13 +67,18 @@ set runtimepath+=~/path/to/fluoride
 ## Usage
 
 ```vim
-:Fluoride
+:Fluoride              " open with configured window type (default: float)
+:Fluoride float        " open as floating window
+:Fluoride vsplit       " open as vertical split
+:Fluoride split        " open as horizontal split
+:FluorideToggle        " toggle open/close
 ```
 
 Map to a keybinding:
 
 ```lua
 vim.keymap.set("n", "<leader>cp", "<cmd>Fluoride<cr>", { desc = "Fluoride" })
+vim.keymap.set("n", "<leader>cv", "<cmd>Fluoride vsplit<cr>", { desc = "Fluoride (vertical split)" })
 ```
 
 ## Configuration
@@ -83,11 +88,12 @@ All options are optional. Defaults shown below:
 ```lua
 require("fluoride").setup({
   window = {
+    type = "float",           -- "float", "vsplit", or "split"
     title = "Fluoride",       -- string or false to hide
-    border = "single",        -- any nvim_open_win border format
-    winblend = 15,            -- transparency (0-100)
+    border = "single",        -- any nvim_open_win border format (float only)
+    winblend = 15,            -- transparency 0-100 (float only)
     footer = true,            -- show keybinding hints at bottom
-    center_breakpoint = 80,   -- switch to centered layout below this width
+    center_breakpoint = 80,   -- switch to centered layout below this width (float only)
     sidebar = {               -- right-side floating window (wide terminals)
       width = 0.3,            -- proportion of terminal width (0-1)
       height = 0.85,          -- proportion of terminal height (0-1)
@@ -97,6 +103,14 @@ require("fluoride").setup({
     centered = {              -- centered float (narrow terminals)
       width = 0.6,            -- proportion of terminal width (0-1)
       height = 0.6,           -- proportion of terminal height (0-1)
+    },
+    vsplit = {                -- vertical split options
+      width = 40,             -- columns
+      position = "right",     -- "left" or "right"
+    },
+    split = {                 -- horizontal split options
+      height = 15,            -- rows
+      position = "bottom",    -- "top" or "bottom"
     },
   },
   keymaps = {
